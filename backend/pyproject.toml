@@ -1,0 +1,29 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.19.1",
+    "arq>=0.26.3",
+    "asyncpg>=0.30.0",
+    "fastapi>=0.124.4",
+    "label-studio-sdk>=1.0.8",
+    "minio>=7.2.20",
+    "openpyxl>=3.1.5",
+    "pydantic-settings>=2.8.1",
+    "email-validator>=2.1.1",
+    "pwdlib>=0.3.0",
+    "python-multipart>=0.0.32",
+    "redis>=5.0.0",
+    "ruff>=0.15.22",
+    "sqlalchemy>=2.0.51",
+    "uvicorn>=0.27.0",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-instrumentation-fastapi",
+    "opentelemetry-instrumentation-logging",
+    "opentelemetry-exporter-otlp"
+]
+
