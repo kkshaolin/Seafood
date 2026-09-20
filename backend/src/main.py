@@ -12,6 +12,7 @@ from db.database import create_database_schema, get_db_session
 from api.auth.router import router as auth_router
 from api.users.router import router as users_router
 from api.storage.router import router as storage_router
+from api.ingestion.router import router as ingestion_router
 from services.storage import storage_service
 from utils.logger import get_logger
 
@@ -162,6 +163,7 @@ logger = logging.getLogger(__name__)
 app.include_router(auth_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
+app.include_router(ingestion_router, prefix="/api")
 
 class TrainingRequest(BaseModel):
     dataset_name: str
@@ -273,6 +275,8 @@ async def get_job_status(job_id: str, request: Request):
         queue_name = "training_queue"
     elif job_id.startswith("infer_"):
         queue_name = "inference_queue"
+    elif job_id.startswith("ingest_"):
+        queue_name = "data_queue"
         
     job = Job(job_id, redis_pool, _queue_name=queue_name)
     status = await job.status()

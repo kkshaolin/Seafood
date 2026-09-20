@@ -1,0 +1,24 @@
+# แหล่งข้อมูลสถิติการส่งออกกุ้ง/หมึกแช่แข็ง (ไฟล์ CSV/Excel รายเดือน) -> MinIO raw-trade/
+# ทุก source ปิดไว้ (enabled: false) จนกว่าจะใส่ URL จริง -- ดูตัวอย่าง 3 โหมดด้านล่าง
+#
+#   mode: url_template  URL ไฟล์ตรง ๆ ใส่ {year} {month} {month:02d} ได้ ดึงย้อน months_back เดือน
+#   mode: ckan          ดึงรายการ resource จาก CKAN API (เช่น data.go.th) แล้วโหลดไฟล์ csv/xls/xlsx
+#   mode: page_links    เปิดหน้าเว็บ (requests + BeautifulSoup) แล้วเก็บลิงก์ไฟล์ csv/xls/xlsx/zip
+sources:
+  - name: customs_export_monthly
+    enabled: false
+    mode: url_template
+    url: "https://example.go.th/export/frozen_shrimp_{year}{month:02d}.xlsx"
+    months_back: 120
+
+  - name: datagoth_shrimp_squid
+    enabled: false
+    mode: ckan
+    base_url: "https://data.go.th"
+    dataset_id: "REPLACE_WITH_DATASET_ID"
+
+  - name: moc_tradereport
+    enabled: false
+    mode: page_links
+    page_url: "https://tradereport.moc.go.th/"
+    link_regex: "(?i)(shrimp|squid|กุ้ง|หมึก)"   # ไม่บังคับ: เก็บเฉพาะลิงก์ที่ตรง

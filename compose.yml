@@ -202,6 +202,40 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  data-worker:                        # ดึงข้อมูลจากภายนอก (ราคาหุ้น/ค่าเงิน, งบการเงิน, สถิติส่งออก) — ดู workers/ingestion/
+    build:
+      context: ./workers
+      dockerfile: Dockerfile.data
+    container_name: data_worker
+    command: ["python", "-m", "arq", "data_worker.WorkerSettings"]
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Bangkok               # cron ใน data_worker.py อิงเวลานี้
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=admin
+      - MINIO_SECRET_KEY=password123
+      - DATASETS_BUCKET=datasets
+      - STOCK_SYMBOLS=TU,ASIAN,CFRESH,TC,SSF
+      - FX_SYMBOLS=USDTHB=X
+    volumes:
+      - ./workers:/app                # แก้โค้ดแล้ว docker compose restart data-worker ได้เลย
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      backend:
+        condition: service_healthy    # backend สร้างตาราง (create_all) ตอนสตาร์ท
+    networks:
+      - ai-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
   mlflow:
     build:
       context: .

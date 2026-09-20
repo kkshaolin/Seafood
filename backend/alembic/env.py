@@ -19,6 +19,7 @@ from src.db.database import Base, _ensure_async_database_url  # noqa: E402
 # Import all model files so metadata is populated for autogenerate
 from src.api.auth import model  # noqa: F401, E402
 from src.models import student  # noqa: F401, E402
+from src.models import market_data  # noqa: F401, E402
 
 config = context.config
 

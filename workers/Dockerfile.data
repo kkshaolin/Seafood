@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    TZ=Asia/Bangkok
+
+WORKDIR /app
+
+COPY requirements-data.txt ./
+RUN pip install --no-cache-dir -r requirements-data.txt
+
+COPY data_worker.py ./
+COPY ingestion/ ./ingestion/
+
+CMD ["python", "-m", "arq", "data_worker.WorkerSettings"]

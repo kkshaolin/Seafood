@@ -30,6 +30,7 @@ async def create_database_schema() -> None:
     # Import models before metadata is created so SQLAlchemy knows every table.
     from api.auth import model  # noqa: F401
     from models import student  # noqa: F401
+    from models import market_data  # noqa: F401
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
