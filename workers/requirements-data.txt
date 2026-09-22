@@ -1,0 +1,14 @@
+# Data ingestion worker (ไม่ลง torch/transformers — เบากว่า image ของ training/inference มาก)
+arq==0.25.0
+redis>=5.0,<6
+minio>=7.2
+yfinance>=0.2.54
+pandas>=2.2
+pyarrow>=15
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.0
+openpyxl>=3.1
+pyyaml>=6.0
