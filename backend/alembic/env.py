@@ -13,13 +13,17 @@ from alembic import context
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
+src_dir = os.path.join(backend_dir, "src")
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
 
-from src.core.config import settings  # noqa: E402
-from src.db.database import Base, _ensure_async_database_url  # noqa: E402
+from core.config import settings  # noqa: E402
+from db.database import Base, _ensure_async_database_url  # noqa: E402
 # Import all model files so metadata is populated for autogenerate
-from src.api.auth import model  # noqa: F401, E402
-from src.models import student  # noqa: F401, E402
-from src.models import market_data  # noqa: F401, E402
+from api.auth import model  # noqa: F401, E402
+from models import student  # noqa: F401, E402
+from models import market_data  # noqa: F401, E402
+from models import stock  # noqa: F401, E402
 
 config = context.config
 

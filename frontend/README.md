@@ -1,7 +1,11 @@
-# Frontend (Client Web Application)
+# Frontend Application
 
-โฟลเดอร์นี้สำหรับพัฒนาแอปพลิเคชันฝั่งหน้าเว็บ (Web Application / UI Client) ที่เชื่อมต่อกับบริการ FastAPI Backend API (`http://localhost:8000`)
+ระบบหน้าบ้าน (Frontend UI) พัฒนาด้วย **React**, **TypeScript**, และ **Vite** พร้อมใช้ **Tailwind CSS** ในการตกแต่งส่วนแสดงผล
 
-- พัฒนาส่วนต่อประสานผู้ใช้ (User Interface) ให้ผู้ใช้งานสามารถเข้าถึงบริการ AI Ecosystem ได้สะดวก
-- หน้าแดชบอร์ดแสดงสถานะ Health Check ของระบบ และรายการไฟล์ใน MinIO
-- หน้าจออัปโหลด Dataset และหน้าจอเข้าสู่ระบบ (Authentication UI)
+## โครงสร้าง
+- **`src/`**
+  - **`api/`**: ฟังก์ชันเชื่อมต่อกับ Backend API แบ่งตาม Modules (`camera.ts`, `forecast.ts`, `risk.ts`, `stock.ts`, `settings.ts`)
+  - **`components/`**: UI Components ย่อย เช่น `Dashboard.tsx` สำหรับแสดงผลรวม
+  - **`services/`**: การตั้งค่าและ Interceptor ของ API (`api.ts`)
+  - **`App.tsx` / `main.tsx`**: จุดเริ่มต้นและ Router
+- **`Dockerfile` / `nginx.conf`**: สำหรับการ Build Production นำไปโฮสต์ด้วย Nginx

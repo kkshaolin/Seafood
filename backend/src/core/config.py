@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     # ตั้งค่าคอนฟิกเพื่อเชื่อมโยงกับไฟล์ .env
     model_config = SettingsConfigDict(
-        env_file=BASE_DIR / ".env",
+        env_file=BASE_DIR.parent / ".env",
         env_file_encoding="utf-8",
         extra="ignore"
     )

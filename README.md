@@ -1,50 +1,53 @@
-# AI Ecosystem Workspace
+# I_LoveSeafood: AI Ecosystem Workspace
 
-รีโพสิทอรีนี้เป็นโครงสร้างระบบ **AI Engineering Ecosystem** แบบครบวงจร พัฒนาขึ้นสำหรับการทำงานจริงในระดับต่อยอดรองรับระบบ AI (เช่น Computer Vision, NLP Token Classification, LLM/RAG) โดยแบ่งสัดส่วนการทำงานอย่างเป็นโมดูล (Modular Architecture) แยกโหลดการทำงานระหว่าง Backend API, Training Node และ Inference Node อย่างชัดเจน ใช้งานง่าย ปลอดภัย และพร้อมสำหรับการขยายระบบ (Scale) ในอนาคต
+รีโพสิทอรีนี้เป็นโครงสร้างระบบ **I_LoveSeafood AI Ecosystem** ซึ่งถูกออกแบบมาเพื่อจัดการระบบตลาดอาหารทะเล วิเคราะห์ข้อมูลการเงิน/หุ้น และประมวลผลภาพจากกล้องด้วย AI แบบครบวงจร โดยใช้สถาปัตยกรรมแบบแยกส่วน (Modular Architecture) ที่ช่วยกระจายโหลดการประมวลผลระหว่าง API, Frontend, และระบบ Worker ได้อย่างมีประสิทธิภาพ
+
+## ระบบนี้ทำอะไรบ้าง? (Core Capabilities)
+
+1. **Computer Vision & Camera Analysis**: มี API สำหรับรับข้อมูลภาพจากกล้อง และใช้ระบบ Inference ทำนายผลเพื่อคัดแยกหรือประมวลผลข้อมูลอาหารทะเล
+2. **Time-Series Forecasting (ARIMAX)**: ระบบวิเคราะห์และพยากรณ์แนวโน้มข้อมูลตลาดและราคาหุ้นล่วงหน้าด้วยโมเดล ARIMAX
+3. **Market & Stock Data Ingestion**: มีระบบ Worker สำหรับดูดข้อมูลและรวบรวมข้อมูลงบการเงิน (Financials) และการซื้อขาย (Trades) จากแหล่งข้อมูลภายนอกแบบอัตโนมัติ
+4. **Risk Management**: มีโมดูลสำหรับคำนวณและประเมินความเสี่ยงทางธุรกิจและตลาด
+5. **Asynchronous AI Pipelines**: แยกระบบการเทรนโมเดล (Training) และการทำนายผล (Inference) ไปทำงานอยู่เบื้องหลังผ่าน Background Workers เพื่อไม่ให้กระทบการทำงานของระบบหลัก
 
 ## โครงสร้างโฟลเดอร์และไฟล์สำคัญ (Directory Structure)
 
 ```text
 ai-ecosystem-workspace/
+├── frontend/                 # ระบบหน้าบ้าน (React, TypeScript, Vite, Tailwind CSS)
 ├── backend/                  # บริการ Backend API (FastAPI)
 │   ├── alembic/              # Database Migration Management (Alembic)
-│   ├── src/                  # Source Code หลัก
-│   │   ├── api/              # API Controllers, Routers & Schemas
-│   │   │   ├── auth/         # ระบบยืนยันตัวตน (Authentication & JWT Tokens)
-│   │   │   ├── users/        # ระบบจัดการผู้ใช้งาน (User Management CRUD)
-│   │   │   ├── storage/      # ระบบอัปโหลดและจัดการไฟล์ Dataset บน MinIO
-│   │   │   └── predict/      # ระบบทำนายผล (Synchronous Inference API)
-│   │   ├── core/             # ไฟล์ตั้งค่าส่วนกลาง (Configuration)
-│   │   ├── db/               # การเชื่อมต่อฐานข้อมูล SQLAlchemy
-│   │   ├── models/           # Data Models / Database Tables
-│   │   ├── services/         # Helper Services & Business Logic
-│   │   ├── utils/            # ฟังก์ชันช่วยเหลือ
-│   │   └── main.py           # จุดเริ่มต้น FastAPI App, CORS, Health Check, และ Training Endpoints
-│   ├── tests/                # Unit Tests & Integration Tests
-│   ├── alembic.ini           # Alembic Configuration File
-│   ├── pyproject.toml        # Python Dependencies (uv/pip)
-│   └── Dockerfile            # Docker configuration สำหรับ Backend
+│   └── src/                  # Source Code หลัก
+│       ├── api/              # API Controllers, Routers & Schemas (auth, camera, ingestion, stock, etc.)
+│       ├── core/             # ไฟล์ตั้งค่าส่วนกลาง (Configuration)
+│       ├── db/               # การเชื่อมต่อฐานข้อมูล SQLAlchemy
+│       ├── forecasting/      # ระบบพยากรณ์เวลาและข้อมูล (Time-Series Forecasting / ARIMAX)
+│       ├── models/           # Data Models / Database Tables
+│       ├── services/         # Helper Services & Business Logic
+│       ├── utils/            # ฟังก์ชันช่วยเหลือ
+│       └── main.py           # จุดเริ่มต้น FastAPI App
+│   
 │
 ├── storage/                  # โฟลเดอร์เก็บข้อมูลจำลองและระบบ (Volume Data)
-│   ├── data/                 # ที่เก็บข้อมูล Dataset & Label Studio
+│   ├── data/                 # ที่เก็บข้อมูลดิบและ Dataset (เช่น conll2003, minio photos)
 │   ├── logs/                 # ไฟล์ Log การทำงานของระบบ
-│   └── models/               # ที่เก็บไฟล์โมเดล AI (MinIO Artifacts)
+│   └── models/               # ที่เก็บไฟล์โมเดล AI แบ่งตาม Time-Series และแบบทั่วไป
 │
 ├── workers/                  # บริการ Worker ทำงานเบื้องหลัง (Background Worker)
-│   ├── worker.py             # ARQ Worker ประมวลผลข้อมูลทั่วไป (Data/File Processing)
-│   ├── training_worker.py    # ARQ Worker สำหรับงานเทรนโมเดล (ใช้ GPU, ส่งผลขึ้น MLflow)
-│   ├── inference_worker.py   # ARQ Worker สำหรับรันทำนายผล (โหลดจาก MLflow พร้อม Caching)
-│   └── Dockerfile            # Docker configuration สำหรับ Worker ทั้งหมด
+│   ├── ingestion/            # ระบบดึงข้อมูลจากแหล่งภายนอก (Financials, Stocks, Trades)
+│   ├── data_worker.py        # Worker จัดการและเตรียมข้อมูล
+│   ├── forecasting_worker.py # Worker ประมวลผลโมเดลพยากรณ์
+│   ├── training_worker.py    # Worker สำหรับงานเทรนโมเดล
+│   ├── inference_worker.py   # Worker สำหรับรันทำนายผล 
+│   └── worker.py             # Worker ประมวลผลข้อมูลทั่วไป
 │
 ├── observability/            # การตั้งค่าระบบ Observability (Metrics, Logs, Traces)
-│   ├── grafana/              # ตั้งค่า Datasource สำหรับ Grafana แบบอัตโนมัติ
-│   ├── loki.yml              # ตั้งค่าระบบจัดเก็บ Log (Log Aggregation)
-│   ├── otel-collector.yml    # ตั้งค่าตัวกลางรับ-ส่ง Traces และ Metrics (OpenTelemetry)
-│   ├── prometheus.yml        # ตั้งค่าการเก็บ Time-series Metrics
-│   ├── promtail.yml          # ตั้งค่า Agent ดึง Log จาก Docker ส่งให้ Loki
-│   └── tempo.yml             # ตั้งค่าระบบจัดเก็บ Distributed Tracing
+│   ├── grafana/, loki.yml, otel-collector.yml, prometheus.yml, promtail.yml, tempo.yml
 │
-└── compose.yml               # การตั้งค่า Docker Compose สำหรับคอนเทนเนอร์ทั้งหมด รวมถึงเครื่องมือ Observability
+├── sandbox/                  # พื้นที่ทดสอบโค้ดและสคริปต์ (Experiments / API Tests)
+├── diagrams/                 # ไฟล์แผนผังสถาปัตยกรรม (Architecture Diagrams)
+├── scripts/                  # สคริปต์ตัวช่วยและการจัดการแอดมิน
+└── compose.yml               # การตั้งค่า Docker Compose สำหรับคอนเทนเนอร์ทั้งหมด
 ```
 
 ## คุณสมบัติหลักที่อัปเดตล่าสุด (Key Technical Features)
@@ -69,7 +72,7 @@ ai-ecosystem-workspace/
 - **NVIDIA GPU & Drivers** (Optional): หากต้องการเทรนโมเดลด้วยความเร็วสูง (Docker Compose ต้องการ `nvidia` driver)
 - **Python**: เวอร์ชัน 3.10 หรือ 3.11 (หากต้องการรันแบบ Local นอก Docker)
 
-### 1. การตั้งค่า Environment Variables
+### การตั้งค่า Environment Variables
 สำหรับรันบน Docker ส่วนใหญ่ถูกเซ็ตอัปไว้ใน `compose.yml` แล้ว หากจะรัน Local หรือแก้ไข ให้ดูตัวแปรที่สำคัญดังนี้:
 ```env
 DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
@@ -83,20 +86,7 @@ AWS_ACCESS_KEY_ID=admin
 AWS_SECRET_ACCESS_KEY=password123
 ```
 
-### 2. การรันระบบแบบ End-to-End ด้วย Docker Compose
-วิธีที่แนะนำที่สุดในการรันระบบทั้งหมด:
-```bash
-# รันระบบทั้งหมด (Backend, MLflow, MinIO, Redis, Postgres, Workers, Label Studio)
-docker compose up -d
-
-# ดูสถานะการทำงานของคอนเทนเนอร์ทั้งหมด
-docker compose ps
-
-# สเกล Inference Worker เพื่อรองรับโหลด API มหาศาล
-docker compose up -d --scale inference-worker=3
-```
-
-### 3. การรันสำหรับนักพัฒนา (Local Development)
+### การรันสำหรับนักพัฒนา (Local Development)
 หากต้องการรันเซอร์วิสแบบไม่พึ่งพา Docker (รัน Services ฐานข้อมูลด้วย Docker แล้วรัน App ด้วย Python):
 ```bash
 # รัน FastAPI (Backend)
@@ -136,6 +126,7 @@ uv run arq inference_worker.WorkerSettings
 
 ## 📌 Notes & Port Assignments
 
+- Frontend (หน้าเว็บหลักของโปรเจกต์): http://localhost:8081
 - **FastAPI Backend**: `http://localhost:8000` (Swagger UI: `http://localhost:8000/docs`)
 - **Grafana (Observability UI)**: `http://localhost:3000` (ไม่ต้องใช้รหัสผ่าน เข้าได้ทันที)
 - **Prometheus (Metrics UI)**: `http://localhost:9090`

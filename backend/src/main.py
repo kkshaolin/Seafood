@@ -9,10 +9,6 @@ from redis import Redis
 
 from core.config import settings
 from db.database import create_database_schema, get_db_session
-from api.auth.router import router as auth_router
-from api.users.router import router as users_router
-from api.storage.router import router as storage_router
-from api.ingestion.router import router as ingestion_router
 from services.storage import storage_service
 from utils.logger import get_logger
 
@@ -160,18 +156,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Include Routers
-app.include_router(auth_router, prefix="/api")
-app.include_router(users_router, prefix="/api")
-app.include_router(storage_router, prefix="/api")
-app.include_router(ingestion_router, prefix="/api")
+from api.stock.router import router as stock_router
+app.include_router(stock_router, prefix="/api")
+from forecasting.router import router as forecast_router
+app.include_router(forecast_router, prefix="/api")
+from api.settings import router as settings_router
+app.include_router(settings_router, prefix="/api")
+from api.risk import router as risk_router
+app.include_router(risk_router, prefix="/api")
 
-class TrainingRequest(BaseModel):
-    dataset_name: str
-    model_name: str = "distilbert-base-uncased"
-    scheduled_time: str | None = None  # ISO format: "2024-01-01T10:00:00"
-    epochs: int = 3
-    batch_size: int = 16
-    
 @app.get("/health", tags=["system"], summary="Comprehensive System Health Check")
 async def health_check(session: AsyncSession = Depends(get_db_session)) -> dict:
     """Comprehensive health check endpoint checking Postgres, Redis, and MinIO services."""
@@ -215,83 +208,8 @@ async def health_check(session: AsyncSession = Depends(get_db_session)) -> dict:
 from fastapi import Request
 from arq.jobs import Job
 
-@app.post("/add_train_queue_time")
-async def add_train_queue(request_data: TrainingRequest, request: Request):
-    """
-    เพิ่ม job เข้าคิวฝึกโมเดล สามารถกำหนดเวลาเริ่มได้
-    """
-    job_id = f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    
-    job_data = {
-        "job_id": job_id,
-        "dataset_name": request_data.dataset_name,
-        "model_name": request_data.model_name,
-        "epochs": request_data.epochs,
-        "batch_size": request_data.batch_size,
-        "created_at": datetime.now().isoformat()
-    }
-    
-    redis_pool = request.app.state.redis_pool
-    
-    if request_data.scheduled_time:
-        # Schedule for future execution
-        schedule_time = datetime.fromisoformat(request_data.scheduled_time)
-        job = await redis_pool.enqueue_job(
-            'train_model',
-            job_data,
-            _job_id=job_id,
-            _defer_until=schedule_time,
-            _queue_name="training_queue"
-        )
-        logger.info(f"Scheduled job {job_id} at {schedule_time}")
-        return {
-            "status": "scheduled",
-            "job_id": job_id,
-            "scheduled_time": request_data.scheduled_time,
-            "message": f"Job will start at {schedule_time}"
-        }
-    else:
-        # Enqueue immediately
-        job = await redis_pool.enqueue_job(
-            'train_model',
-            job_data,
-            _job_id=job_id,
-            _queue_name="training_queue"
-        )
-        logger.info(f"Enqueued job {job_id}")
-        return {
-            "status": "queued",
-            "job_id": job_id,
-            "message": "Job added to queue"
-        }
-
-@app.get("/job_status/{job_id}")
-async def get_job_status(job_id: str, request: Request):
-    """ตรวจสอบสถานะ job"""
-    redis_pool = request.app.state.redis_pool
-    
-    queue_name = "arq:queue"
-    if job_id.startswith("train_"):
-        queue_name = "training_queue"
-    elif job_id.startswith("infer_"):
-        queue_name = "inference_queue"
-    elif job_id.startswith("ingest_"):
-        queue_name = "data_queue"
-        
-    job = Job(job_id, redis_pool, _queue_name=queue_name)
-    status = await job.status()
-    if status.value != "not_found":
-        info = await job.info()
-        return {
-            "job_id": job_id,
-            "status": status.value,
-            "created_at": info.enqueue_time.isoformat() if info and hasattr(info, 'enqueue_time') else None,
-            "result": await job.result(timeout=0) if status.value == "complete" else None
-        }
-    raise HTTPException(status_code=404, detail="Job not found")
-
-from api.predict.router import router as predict_router
-app.include_router(predict_router)
+from api.inventory import router as inventory_router
+app.include_router(inventory_router)
 
 if __name__ == "__main__":
     import uvicorn

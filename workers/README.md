@@ -2,26 +2,22 @@
 
 โฟลเดอร์นี้สำหรับเก็บบริการ **Background Worker** ที่ประมวลผลงานหนักแบบ Asynchronous โดยใช้ **ARQ** ร่วมกับ **Redis Broker**
 
-- แยกงานที่ใช้เวลาคำนวณสูง (Heavy Workload) หรือประมวลผล AI/ML ออกจาก HTTP Web Request
-- รับงานจาก Backend API ผ่าน Redis Task Queue เพื่อประมวลผลตามลำดับคิว
-- รองรับงานเช่น: การประมวลผลไฟล์ทั่วไป, การเทรนโมเดล AI, และการรัน Inference ตอบกลับผู้ใช้งาน
-
 ## สถาปัตยกรรม Worker แบบเฉพาะทาง (Specialized Workers)
-ในโปรเจคนี้มีการแบ่งไฟล์ Worker ออกตามลักษณะงานและการรันคิวเพื่อไม่ให้งานบล็อกกัน:
 
-1. **`worker.py`** (General Data Worker)
-   - ใช้ประมวลผลข้อมูลทั่วไป เช่น `process_data_task` หรือ `minio_file_processor_task`
-   - รันในคิวเริ่มต้น (`arq:queue`)
-2. **`training_worker.py`** (Training Node)
-   - ใช้สำหรับการเทรนโมเดลโดยเฉพาะ
-   - มีฟังก์ชัน `train_model` ดึงข้อมูลจาก MinIO/HuggingFace เทรนบน GPU และส่งขึ้น MLflow
-   - รับงานจากคิวแยกพิเศษ (`training_queue`) ป้องกันการรบกวนงานอื่น
-3. **`inference_worker.py`** (Inference Node)
-   - ใช้สำหรับการทำนายผลโดยดึงโมเดลมาจาก MLflow
-   - มีฟังก์ชัน `inference_task` พร้อมระบบ In-memory `model_cache` เพื่อความรวดเร็ว
-   - รับงานจากคิวแยกพิเศษ (`inference_queue`) 
+1. **`worker.py`** (General Worker)
+   - ใช้ประมวลผลข้อมูลทั่วไปและรันคิวเริ่มต้น
+2. **`data_worker.py`** (Data Pipeline Worker)
+   - ใช้รัน Task ที่เกี่ยวข้องกับการจัดการและเตรียมข้อมูล
+3. **`forecasting_worker.py`** (Forecasting Worker)
+   - ทำหน้าที่พยากรณ์ข้อมูล (Time-Series Forecasting) โดยทำงานคู่กับ Backend Forecasting Module
+4. **`inference_worker.py`** (Inference Worker)
+   - ทำนายผลจากโมเดล (ML/DL) ตอบกลับ API อย่างรวดเร็ว
+5. **`training_worker.py`** (Training Worker)
+   - สำหรับการเทรนโมเดลขนาดใหญ่และส่ง Metrics ไปยัง MLflow
 
-## ขั้นตอนการเพิ่มงาน AI Task ใหม่
-1. เขียนฟังก์ชัน `async def my_new_task(ctx, ...)` ในไฟล์ Worker ที่เหมาะสม
-2. ลงทะเบียนฟังก์ชันใน `WorkerSettings.functions = [..., my_new_task]`
-3. เรียกสั่งงานจาก Backend ด้วย `await redis.enqueue_job("my_new_task", arg1, _queue_name="your_target_queue")`
+## ระบบย่อย
+- **`ingestion/`**
+  - สคริปต์สำหรับดึงและรวบรวมข้อมูลภายนอก (Data Ingestion) เช่น ดึงข้อมูล Financials, Stocks, และ Trades 
+  - ประกอบด้วยไฟล์เช่น `financials.py`, `stocks.py`, `trade.py`
+- **`tests/`**
+  - Unit Tests สำหรับ Worker และระบบ Ingestion

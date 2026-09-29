@@ -31,6 +31,7 @@ async def create_database_schema() -> None:
     from api.auth import model  # noqa: F401
     from models import student  # noqa: F401
     from models import market_data  # noqa: F401
+    from models import stock  # noqa: F401
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)

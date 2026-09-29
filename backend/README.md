@@ -1,66 +1,38 @@
-# Backend Service (FastAPI)
+# Backend Service (I_LoveSeafood)
 
-โฟลเดอร์นี้เก็บบริการ **Backend API** ของระบบ AI Ecosystem พัฒนาด้วย **FastAPI** ร่วมกับ **Async SQLAlchemy 2.0**, **PostgreSQL**, **Alembic**, **JWT Authentication** และการเชื่อมต่อกับ **MinIO/MLflow**
+บริการ Backend หลักของระบบ **I_LoveSeafood** พัฒนาด้วย **FastAPI** ทำหน้าที่เป็นศูนย์กลาง (Core API) ในการเชื่อมต่อระหว่างหน้าต่างผู้ใช้งาน (Frontend), ฐานข้อมูล (PostgreSQL), Object Storage (MinIO), และระบบจัดการคิวงาน (ARQ Workers)
 
-- ให้บริการ RESTful API สำหรับระบบการลงทะเบียน เข้าสู่ระบบ และจัดการสิทธิ์ผู้ใช้งาน (Auth & Users)
-- บริการ API อัปโหลดไฟล์ Dataset และข้อมูลสื่อเข้า MinIO Object Storage (`/api/storage`)
-- บริการเชื่อมต่อเพื่อรันงาน AI เบื้องหลัง ทั้งงาน Train (`/add_train_queue_time`) และงาน Inference (`/predict`)
-- คุยกับ Background Task Queue (Redis + ARQ Worker) ด้วยการแยกคิว (`training_queue`, `inference_queue`)
-- ตรวจสอบสถานะความพร้อมของโครงสร้างระบบด้วยระบบ Health Check แบบครบวงจร (`/health`)
+## ระบบ Backend นี้ทำหน้าที่อะไรในโปรเจกต์?
 
-## โครงสร้างภายในโฟลเดอร์ Backend
+Backend ของ I_LoveSeafood ไม่ได้เป็นแค่ระบบ CRUD ทั่วไป แต่ถูกออกแบบมาเพื่อรองรับงานด้าน Data และ AI Pipeline เฉพาะทางสำหรับข้อมูลอาหารทะเลและตลาด โดยมีหน้าที่หลักดังนี้:
 
-```text
-backend/
-├── alembic/                  # ระบบจัดการ Database Schema Migration (Alembic)
-│   ├── env.py                # ไฟล์ตั้งค่าการเชื่อมต่อ Async SQLAlchemy ของ Alembic
-│   └── versions/             # ไฟล์ประวัติบันทึกการเปลี่ยนแปลงตารางใน PostgreSQL
-│
-├── src/                      # Source Code หลักของ Backend
-│   ├── api/                  # Controllers, Routers และ Data Schemas
-│   │   ├── auth/             # ระบบลงทะเบียน, Login (JWT)
-│   │   ├── users/            # ระบบจัดการผู้ใช้งานแบบ CRUD
-│   │   ├── storage/          # ระบบอัปโหลดไฟล์เข้า MinIO
-│   │   └── predict/          # ระบบ Synchronous Inference API
-│   │
-│   ├── core/                 # ไฟล์ตั้งค่าและคอนฟิกระบบ
-│   ├── db/                   # การเชื่อมต่อฐานข้อมูล (Async Engine)
-│   ├── models/               # SQLAlchemy Database Models
-│   ├── services/             # Business Logic & Service Helpers
-│   ├── utils/                # ฟังก์ชันช่วยเหลือ (Logger)
-│   └── main.py               # จุดเริ่มต้นแอป FastAPI, CORS Middleware และ Core Endpoints
-│
-├── tests/                    # Unit Tests & Integration Tests
-├── alembic.ini               # ไฟล์ตั้งค่าคำสั่ง Alembic
-├── pyproject.toml            # Python Dependencies & Project Metadata (uv)
-└── Dockerfile                # Docker Image Build Configuration
-```
+1. **จัดการข้อมูลตลาดและสต็อกสินค้า (Market & Stock Management)**
+   - รับและให้บริการข้อมูลสินค้า (Seafood Products), ปริมาณสต็อก, และข้อมูลตลาด/ราคาหุ้น (`api/stock`)
+   - สั่งการ Ingestion Worker ให้ไปดึงข้อมูล Financials หรือ Trading Data จากแหล่งภายนอก (`api/ingestion`)
 
----
+2. **พยากรณ์ความต้องการและราคาล่วงหน้า (Time-Series Forecasting)**
+   - มีโมดูล `forecasting/` สำหรับสร้างโมเดลและพยากรณ์ข้อมูลแบบอนุกรมเวลา (Time-Series) โดยใช้ **ARIMAX** 
+   - สามารถรับพารามิเตอร์ (p, d, q) เข้ามาทาง API เพื่อให้ Worker รันประมวลผล Forecasting กลับไปแสดงบน Dashboard
 
-## วิธีการรัน Backend
+3. **รับภาพจากกล้องเพื่อวิเคราะห์ด้วย AI (Camera & Vision Pipeline)**
+   - มี `api/camera` คอยรับภาพนิ่งหรือ Log จากกล้องที่หน้างาน (เช่น ภาพสายพานคัดแยกอาหารทะเล)
+   - อัปโหลดภาพเข้าสู่ MinIO และสามารถเชื่อมโยงกับ Worker เบื้องหลังเพื่อรัน Inference ทำนายผลได้
 
-ก่อนรัน Server (หากไม่ได้ใช้ Docker Compose) ให้สั่งอัปเดตตารางฐานข้อมูลใน PostgreSQL:
+4. **ประเมินความเสี่ยง (Risk Evaluation)**
+   - มีบริการคำนวณและประเมินระดับความเสี่ยง (`services/risk_service.py`) เพื่อช่วยในการตัดสินใจทางธุรกิจ
 
-```bash
-# Alembic อัปเดตฐานข้อมูล
-uv run alembic upgrade head
-```
+5. **ระบบยืนยันตัวตนและการจัดการผู้ใช้ (Auth & Users)**
+   - ควบคุมสิทธิ์การเข้าถึง API ทั้งหมดด้วย JWT Authentication
 
-### 1. การรัน FastAPI Server
-รัน Server ให้เรียกด้วย Python จาก `src/`:
+## โครงสร้างภายในโฟลเดอร์ `backend/`
 
-```bash
-uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-```
+- **`src/`**: แหล่งรวม Business Logic และโค้ดการทำงานทั้งหมด
+  - **`api/`**: แบ่ง API Routes ตามหน้างานชัดเจน ได้แก่ `auth`, `camera`, `ingestion`, `predict`, `stock`, `storage`, `training`, `users`
+  - **`forecasting/`**: โค้ดประมวลผลสถิติและ Machine Learning เฉพาะทางสำหรับ ARIMAX
+  - **`models/`**: ตารางฐานข้อมูล SQLAlchemy (เช่น `market_data`, `stock`)
+  - **`services/`**: ฟังก์ชันตัวช่วยและการคุยกับเซอร์วิสภายนอก (MinIO, Risk Calc)
+  - **`core/` & `db/`**: การตั้งค่าตัวแปรระบบและการเชื่อมต่อ DB
 
-### 2. การเข้าใช้งาน API Documentation
-เปิดใน Web Browser:
-- **Interactive Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc Format**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- **`alembic/`**: ระบบควบคุมเวอร์ชันการสร้างและแก้ไขตารางฐานข้อมูล PostgreSQL
 
----
-
-## 📌 หมายเหตุ
-1. **การรันคำสั่ง**: ให้รันจากโฟลเดอร์ `backend/` เสมอ เพื่อให้การ Import Module ภายใน Python ทำงานได้ถูกต้อง
-2. **สภาพแวดล้อม (.env)**: ระบบพึ่งพา Environment Variables จำนวนมาก (เช่น `REDIS_URL`, `MLFLOW_TRACKING_URI`) โปรดตรวจสอบให้แน่ใจว่าได้ระบุครบถ้วนก่อนรัน
+- **`tests/`**: ชุด Unit Tests และ API Tests เพื่อรับประกันความถูกต้องของการทำงานก่อนนำขึ้นใช้งานจริง
