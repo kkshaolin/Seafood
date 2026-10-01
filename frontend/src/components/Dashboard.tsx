@@ -27,6 +27,7 @@ export const Dashboard = () => {
   const [cameraId, setCameraId] = useState('cam_main');
   
   // เก็บข้อมูลจาก API เพื่อให้ส่วนแสดงผลอัปเดตตามข้อมูลล่าสุด
+  // summary, cameraLog และ cameraHistory ถูกโหลดไว้ แต่ยังไม่ได้ใช้แสดงผลใน UI ปัจจุบัน
   const [summary, setSummary] = useState<any>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [forecastData, setForecastData] = useState<any>(null);
@@ -37,6 +38,9 @@ export const Dashboard = () => {
   const [settings, setSettings] = useState<any>({});
   const [showSettings, setShowSettings] = useState(false);
   const [riskData, setRiskData] = useState<any>(null);
+
+  // ค่า prototype สำหรับโหมดกล้องจริง; ตอนนี้ไม่มีปุ่มเปลี่ยนค่านี้ จึงยังเข้า branch สตรีมจริงไม่ได้
+  const [isLiveCamera, setIsLiveCamera] = useState(false);
 
   // โหลดข้อมูลทั้งหมดที่หน้า Dashboard ต้องใช้จาก API
   const loadDashboardData = async () => {
@@ -82,7 +86,7 @@ export const Dashboard = () => {
         console.log("No previous forecast found in DB.");
       }
 
-      // โหลดภาพ/บันทึกล่าสุดและประวัติของกล้องที่เลือก; ข้อมูลกล้องอาจยังไม่มีได้
+      // Prepared camera API calls; the current backend does not register camera routes yet.
       try {
         const cam = await getLatestCameraLog(cameraId);
         setCameraLog(cam);
@@ -266,6 +270,7 @@ export const Dashboard = () => {
   // เตรียมค่าที่การ์ดสรุปใช้: สต็อกล่าสุด, ค่าพยากรณ์งวดแรก และสถานะตามเกณฑ์ที่กำหนด
   const currentStock = historyData.length > 0 ? historyData[historyData.length - 1].quantity : 0;
   const nextForecast = forecastData?.forecast?.[0]?.predicted_value?.toFixed(0) || '-';
+  // ค่าคำนวณเกณฑ์แบบเดิมยังเก็บไว้แต่ไม่ได้ใช้; การ์ดความเสี่ยงใช้ผลจาก evaluateRisk ของ backend
   const isRisk = nextForecast !== '-' && parseInt(nextForecast) > 1500;
 
   return (
@@ -281,6 +286,7 @@ export const Dashboard = () => {
 
           
           <div className="space-y-2">
+            {/* ตัวเลือกคลังเป็น UI ตัวอย่าง ยังไม่ได้ผูก state หรือกรองข้อมูล API */}
             <label className="font-semibold text-gray-700">Warehouse</label>
             <select className="w-full p-2 border rounded text-gray-700 bg-white">
               <option>All Zones</option>
@@ -291,6 +297,7 @@ export const Dashboard = () => {
 
           <div className="space-y-2">
             <label className="font-semibold text-gray-700">Camera Source</label>
+            {/* เปลี่ยน cameraId เพื่อทดลองเลือกกล้อง; API ของกล้องยังไม่พร้อมใน backend ปัจจุบัน */}
             <select 
               value={cameraId}
               onChange={(e) => setCameraId(e.target.value)}
@@ -335,6 +342,7 @@ export const Dashboard = () => {
               <Settings className="w-4 h-4" />
               <span className="font-medium text-xs">Settings</span>
             </button>
+            {/* ป้ายสถานะนี้เป็นข้อความคงที่ ยังไม่ได้อ่านผลจาก /health */}
             <div className="flex items-center gap-2 text-green-600 bg-green-50 px-3 py-1.5 rounded-full border border-green-200">
               <Activity className="w-4 h-4" />
               <span className="font-medium text-xs">System Online</span>
@@ -445,6 +453,7 @@ export const Dashboard = () => {
               {/* รายละเอียดโมเดลและตัวชี้วัดจะแสดงเมื่อมีผลพยากรณ์แล้วเท่านั้น */}
               {forecastData && (
                 <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                  {/* หัวข้อเป็นชื่อส่วนแสดงผล; URI อาจเป็น local path ไม่ได้ยืนยันว่า register ใน MLflow แล้ว */}
                   <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
                     <Settings className="w-4 h-4" /> Model Information (MLflow)
                   </h3>
@@ -470,7 +479,56 @@ export const Dashboard = () => {
               )}
             </div>
 
-            
+            {/* คอลัมน์ที่ 3: ส่วนแสดงภาพจากกล้อง */}
+            <div className="col-span-1 space-y-6">
+              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col h-full">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                    <Camera className="w-4 h-4" /> Live Camera View
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                    </span>
+                    <span className="text-xs text-gray-500 font-medium">LIVE</span>
+                  </div>
+                </div>
+                
+                <div className="flex-1 bg-black rounded-lg overflow-hidden relative min-h-[250px] flex items-center justify-center border border-gray-800">
+                  {!isLiveCamera ? (
+                    // โหมดจำลองใช้รูปใน storage ไม่ใช่ภาพสด; ไฟล์นี้อาจไม่มีใน checkout ใหม่
+                    <img 
+                      src="/storage/data/ex.jpg" 
+                      alt="Mock Camera Feed" 
+                      className="w-full h-full object-cover opacity-90"
+                    />
+                  ) : (
+                    // โหมดกล้องจริงยังเป็น placeholder; ยังไม่มี stream source หรือ UI เปิดโหมดนี้
+                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-2">
+                      {/* 
+                        TODO: ใส่ <video> หรือ <img> สำหรับสตรีมจริงที่นี่ 
+                        เช่น: <video id="live-stream" autoPlay playsInline className="w-full h-full object-cover"></video>
+                      */}
+                      <Camera className="w-8 h-8 opacity-50" />
+                      <p className="text-sm text-center px-4">Real camera stream goes here.<br/>Ready for integration.</p>
+                    </div>
+                  )}
+                  
+                  {/* Overlay ข้อมูลกล้อง */}
+                  <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded">
+                    {cameraId === 'cam_main' ? 'Zone A (Cold Storage)' : 'Zone B (Processing)'}
+                  </div>
+                  <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded font-mono">
+                    {new Date().toLocaleTimeString()}
+                  </div>
+                </div>
+                
+                <div className="mt-4 text-xs text-gray-500">
+                  <p><strong>Note:</strong> Currently in mock mode using placeholder image (`/storage/data/ex.jpg`).</p>
+                </div>
+              </div>
+            </div>
             </div>
           </div>
       </main>

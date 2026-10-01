@@ -1,3 +1,9 @@
+"""Repository layer สำหรับติดต่อฐานข้อมูลของตาราง shrimp_stocks.
+
+ทำหน้าที่สร้าง query สำหรับ filter ข้อมูล, summary, product list, duplicate check และ bulk insert
+เพื่อให้ controller ใช้งานได้โดยไม่ต้องเขียน SQL ตรง ๆ ใน endpoint.
+"""
+
 from datetime import datetime, date
 from typing import Optional, List, Tuple
 from sqlalchemy import select, func, and_

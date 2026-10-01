@@ -1,4 +1,8 @@
-"""ราคาหุ้นกลุ่มอาหารทะเล + ค่าเงิน (Yahoo Finance / yfinance) -> MinIO raw-financial + PostgreSQL"""
+"""ดึงและจัดเก็บราคาหุ้นอาหารทะเลกับค่าเงินจาก Yahoo Finance
+
+ข้อมูลที่ได้จะถูกปรับเป็นตารางมาตรฐาน แล้วเขียนทั้งไฟล์ Parquet ใน MinIO
+และแถวราคาแบบ idempotent ใน PostgreSQL; สัญลักษณ์ที่ผิดพลาดไม่หยุดตัวอื่น
+"""
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
@@ -15,7 +19,7 @@ OVERLAP_DAYS = 7  # ดึงย้อนทับของเดิมนิด
 
 
 def normalize_symbol(symbol: str) -> str:
-    """หุ้น SET ต้องต่อ .BK บน Yahoo (TU -> TU.BK) ส่วน FX/ดัชนี (USDTHB=X, ^SET.BK) ปล่อยไว้เหมือนเดิม"""
+    """เติม .BK ให้หุ้น SET ที่ยังไม่มี suffix และคงรูปแบบ FX/ดัชนีไว้"""
     s = symbol.strip().upper()
     if "." in s or "=" in s or s.startswith("^"):
         return s
@@ -23,18 +27,19 @@ def normalize_symbol(symbol: str) -> str:
 
 
 def asset_type(symbol: str) -> str:
+    """จัดประเภท symbol เป็น fx สำหรับคู่เงิน Yahoo หรือ equity สำหรับหุ้น"""
     return "fx" if symbol.endswith("=X") else "equity"
 
 
 def _fetch_history(symbol: str, start: date, end: Optional[date] = None) -> pd.DataFrame:
-    """เรียก Yahoo ทีละ symbol (แยกกัน เพื่อให้ตัวที่พังไม่ลากตัวอื่น) -- ฟังก์ชันนี้คือจุดที่ mock ในเทสต์"""
+    """เรียกประวัติราคาจาก Yahoo ทีละ symbol เพื่อแยกผลกระทบเมื่อแหล่งข้อมูลผิดพลาด"""
     import yfinance as yf
 
     return yf.Ticker(symbol).history(start=start, end=end, auto_adjust=False, actions=False)
 
 
 def to_frame(symbol: str, raw: pd.DataFrame) -> pd.DataFrame:
-    """แปลงผลจาก yfinance เป็นตารางมาตรฐาน (long, 1 แถว = 1 symbol x 1 วัน)"""
+    """แปลงผล yfinance เป็นตารางมาตรฐาน หนึ่งแถวต่อ symbol ต่อวัน"""
     cols = ["symbol", "trade_date", "asset_type", "open", "high", "low", "close", "adj_close", "volume"]
     if raw is None or raw.empty:
         return pd.DataFrame(columns=cols)
@@ -64,9 +69,11 @@ def ingest_prices(
     store: Optional[RawStore] = None,
 ) -> dict:
     """
-    - ครั้งแรก/backfill=True : ดึงย้อนหลัง PRICE_BACKFILL_YEARS ปี
-    - ครั้งถัดไป              : ดึงต่อจากวันล่าสุดใน DB (ย้อนทับ 7 วัน)
-    รันซ้ำกี่ครั้งก็ได้ผลเท่าเดิม (upsert ด้วย PK symbol+trade_date)
+    ดึงราคาแล้วเขียนไฟล์ดิบลง MinIO และข้อมูลตารางลง PostgreSQL
+
+    ครั้งแรกหรือเมื่อเปิด backfill จะดึงย้อนหลังตาม PRICE_BACKFILL_YEARS;
+    รอบปกติดึงต่อจากวันล่าสุดในฐานข้อมูลโดยย้อนทับ 7 วันเพื่อรับการปรับข้อมูล
+    การ upsert ด้วย symbol และ trade_date ทำให้เรียกซ้ำได้โดยไม่เพิ่มแถวซ้ำ
     """
     cfg = get_settings()
     symbols = [normalize_symbol(s) for s in (symbols or cfg.stock_symbols + cfg.fx_symbols)]

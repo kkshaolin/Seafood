@@ -1,5 +1,7 @@
+# ค่าทับสำหรับพัฒนา: รัน Vite, mount source code และเฝ้าดูการเปลี่ยนไฟล์ของ workers
 services:
   frontend:
+    # ใช้ Node build stage และ Vite dev server แทน Nginx เพื่ออัปเดตหน้าจอขณะเขียนโค้ด
     build:
       target: builder
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "80"]
@@ -8,6 +10,7 @@ services:
       - /app/node_modules
 
   backend:
+    # ตรวจไฟล์เป็นช่วง ๆ เพื่อให้ Docker Desktop/Windows พบการเปลี่ยนไฟล์ได้สม่ำเสมอ
     environment:
       - WATCHFILES_FORCE_POLLING=true
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
@@ -15,6 +18,7 @@ services:
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:8080","http://localhost:8081","*"]
 
   forecasting-worker:
+    # สั่งเริ่ม worker ใหม่เมื่อไฟล์ Python เปลี่ยนระหว่างพัฒนา
     command: ["watchfiles", "--filter", "python", "python -m arq inference_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
@@ -22,6 +26,7 @@ services:
       - OTEL_LOGS_EXPORTER=none
 
   training-worker:
+    # เฝ้าดู source ของ training worker เพื่อเริ่ม ARQ process ใหม่เมื่อมีการแก้โค้ด
     command: ["watchfiles", "--filter", "python", "python -m arq training_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
@@ -31,16 +36,19 @@ services:
       - ./backend/src:/backend/src
 
   data-worker:
+    # เฝ้าดู source ของ ingestion worker เพื่อให้การแก้ connector มีผลโดยไม่ build image ใหม่
     command: ["watchfiles", "--filter", "python", "python -m arq data_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 
   promtail:
+    # เปิด log files ของ Docker host ให้ Promtail อ่านได้ในโหมดพัฒนา
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
 
   grafana:
+    # เปิด anonymous access เฉพาะ local development และ mount dashboards สำหรับทดสอบ
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_DISABLE_LOGIN_FORM=true

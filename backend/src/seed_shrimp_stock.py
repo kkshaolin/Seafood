@@ -1,4 +1,10 @@
-﻿import asyncio
+"""Utility สำหรับสร้าง mock stock data ชั่วคราวเพื่อทดสอบ forecasting.
+
+สคริปต์นี้ไม่ได้ถูกเรียกจาก compose.yml แต่มีประโยชน์เมื่อต้องสร้าง sample records ในฐานข้อมูล
+ก่อนทำการทดสอบหรือเชื่อมต่อ frontend เช่นเดียวกับการ seed mock สำหรับ dashboard.
+"""
+
+import asyncio
 import os
 import sys
 import datetime

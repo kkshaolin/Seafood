@@ -1,3 +1,7 @@
+"""คอนฟิกแอปหลักที่อ่านค่า environment จาก .env และกำหนด URL, secret, MinIO, CORS
+สำหรับ backend service ที่ถูก start ผ่าน compose.yml
+"""
+
 from pathlib import Path
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict

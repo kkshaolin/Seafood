@@ -1,8 +1,16 @@
-﻿import os
+"""จุดเริ่มต้น ARQ สำหรับฝึกและบันทึกโมเดลพยากรณ์
+
+Compose เปิด ``training-worker`` ด้วย
+``training_worker.worker.WorkerSettings`` บนคิว ``training_queue``.
+แต่ละงานจะตรวจคำขอ เปิด session ฐานข้อมูล แล้วเรียก ForecastingService
+เพื่อคำนวณตัวชี้วัดและบันทึกโมเดลที่ฝึกเสร็จ
+"""
+import os
 import sys
 import logging
 from arq.connections import RedisSettings
 
+# เพิ่ม source ของ backend และ inference worker เพื่อใช้ session, schema และบริการโมเดลร่วมกัน
 workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 backend_src = os.path.join(workspace_root, "backend", "src")
 inference_src = os.path.join(workspace_root, "workers", "inference_worker")
@@ -22,14 +30,19 @@ handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)
 logger.addHandler(handler)
 
 async def startup(ctx):
+    """บันทึกข้อความเมื่อ ARQ เริ่ม worker ฝึกโมเดล"""
     logger.info("Training Worker starting up...")
 
 async def shutdown(ctx):
+    """บันทึกข้อความเมื่อ ARQ ปิด worker ฝึกโมเดล"""
     logger.info("Training Worker shutting down...")
 
 async def run_training_task(ctx, req_data: dict) -> dict:
     """
-    ARQ Job Function: Train ARIMA Model
+    ประมวลผลงานฝึกโมเดลหนึ่งรายการที่ส่งผ่าน ARQ
+
+    ตรวจคำขอ เปิด session ฐานข้อมูล เรียกขั้นตอนฝึกและคืนผลเป็น dict;
+    หากเกิดข้อผิดพลาดจะบันทึก stack trace และคืนสถานะ error ให้ผู้เรียก
     """
     job_id = ctx.get("job_id", "unknown")
     logger.info(f"Starting training job {job_id}")
@@ -46,8 +59,9 @@ async def run_training_task(ctx, req_data: dict) -> dict:
         return {"status": "error", "error": str(e)}
 
 class WorkerSettings:
+    """กำหนดคิวฝึกโมเดล การเชื่อมต่อ Redis และขีดจำกัดงานพร้อมกัน"""
     functions = [run_training_task]
-    queue_name = "training_queue" # Share the same queue for simplicity or use training_queue
+    queue_name = "training_queue"
     job_timeout = 600 # 10 minutes max
     on_startup = startup
     on_shutdown = shutdown

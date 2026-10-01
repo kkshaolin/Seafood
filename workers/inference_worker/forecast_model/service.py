@@ -1,4 +1,10 @@
-﻿import pandas as pd
+"""บริการประสาน pipeline พยากรณ์/ฝึก ARIMA กับข้อมูลสินค้าและฐานข้อมูล
+
+รับข้อมูลอนุกรมเวลาของกุ้งจากไฟล์ CSV, เตรียมข้อมูลรายเดือน, ประเมินและฝึกโมเดล
+จากนั้นบันทึกผลพยากรณ์ลงฐานข้อมูลหรือบันทึกโมเดลที่ฝึกแล้วลง storage/models
+บริการนี้ถูกเรียกโดย forecasting worker และ training worker ที่ Compose เปิดใช้งาน
+"""
+import pandas as pd
 from datetime import date
 import os
 from typing import List, Optional
@@ -13,10 +19,14 @@ from inference_worker.forecast_model.arima import train_arima, forecast_arima
 from inference_worker.forecast_model.metrics import calculate_mae, calculate_rmse, calculate_mape
 
 class ForecastingService:
+    """รวมขั้นตอนอ่านข้อมูล เตรียมโมเดล และบันทึกผลผ่าน SQLAlchemy session"""
+
     def __init__(self, session: AsyncSession):
+        """รับ session แบบ async ที่ worker เปิดไว้สำหรับหนึ่งงาน"""
         self.session = session
 
     async def get_shrimp_stock_data(self, product: str, warehouse: Optional[str] = None) -> pd.DataFrame:
+        """อ่านข้อมูลสต็อกรายเดือนจาก CSV กรองสินค้า/คลัง และคืนคอลัมน์วันกับปริมาณ"""
         workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         csv_path = os.path.join(workspace_root, "storage", "data", "csv_file", "shrimp_stock_monthly_4y.csv")
         
@@ -26,12 +36,12 @@ class ForecastingService:
             
         df = pd.read_csv(csv_path)
         
-        # Override product mapping if needed (because CSV only has tiger_shrimp_size_L)
+        # CSV ตัวอย่างมีสินค้าหลักเพียงชนิดเดียว จึง map คำขอ Premium ไปยังชื่อในไฟล์
         target_product = "tiger_shrimp_size_L" if product == "Premium_White_Shrimp" else product
         filtered = df[df['product'] == target_product].copy()
         
         if filtered.empty and not df.empty:
-            # Fallback to whatever is in the CSV to prevent crash
+            # หากชื่อสินค้าไม่ตรงกับไฟล์ ให้ใช้ชนิดแรกในไฟล์เพื่อคงการประมวลผลตัวอย่าง
             first_product = df['product'].iloc[0]
             filtered = df[df['product'] == first_product].copy()
             
@@ -46,10 +56,15 @@ class ForecastingService:
         return filtered[['recorded_at', 'quantity']]
 
     async def get_detected_stock_data(self) -> pd.DataFrame:
-        # Bypass SQL and return empty since we don't have CameraLog CSV yet
+        """คืน DataFrame ว่างเป็น placeholder จนกว่าจะมีแหล่งข้อมูล CameraLog"""
         return pd.DataFrame(columns=['recorded_at', 'detected_stock'])
 
     async def run_forecast(self, req: ForecastRequest) -> ForecastResponse:
+        """สร้าง forecast ตามคำขอ โดยลองโหลดโมเดลเดิมก่อนและฝึกใหม่เมื่อใช้ไม่ได้
+
+        รวมข้อมูลกล้องกับสต็อกเมื่อมี, เตรียมรายเดือน, คำนวณตัวชี้วัดจาก holdout
+        เมื่อฝึกใหม่, พยากรณ์ตาม horizon และบันทึกจุดพยากรณ์ลง ForecastResult
+        """
         # 1. Load Real-time Data from DB
         stock_df = await self.get_shrimp_stock_data(req.product, req.warehouse)
         if stock_df.empty:
@@ -159,6 +174,11 @@ class ForecastingService:
         )
 
     async def run_training(self, req: ForecastRequest) -> ForecastResponse:
+        """ฝึกโมเดลจากข้อมูลทั้งหมด บันทึกไฟล์โมเดล และคืนตัวชี้วัดจาก holdout
+
+        คำนวณ MAE/RMSE/MAPE จากการแบ่งข้อมูลตามเวลาเมื่อทำได้ ก่อนฝึกโมเดลเต็มชุด
+        และบันทึกผลลัพธ์ไว้ใต้ storage/models/time_serie
+        """
         stock_df = await self.get_shrimp_stock_data(req.product, req.warehouse)
         if stock_df.empty:
             raise PreprocessingError(f"Insufficient data for training: No stock records found for product '{req.product}'")

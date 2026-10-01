@@ -1,3 +1,8 @@
+"""Migration สำหรับเพิ่ม model ที่เกี่ยวกับสต็อก, forecasting และ system setting.
+
+โครงสร้างตารางนี้สอดคล้องกับ schema ที่ใช้งานจริงใน backend/main.py และ frontend stock APIs.
+"""
+
 """add_stock_management_models
 
 Revision ID: a2e6a70fcc01

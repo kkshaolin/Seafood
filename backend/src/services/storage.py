@@ -1,3 +1,9 @@
+"""บริการ MinIO wrapper สำหรับ upload/download/list object และตรวจสอบสถานะ storage.
+
+โมดูลนี้ถูกเรียกจาก health check ของ main.py และใช้เป็น base layer สำหรับการจัดเก็บ dataset/object
+ที่แยกจากฐานข้อมูล PostgreSQL.
+"""
+
 import io
 from typing import Optional
 from minio import Minio

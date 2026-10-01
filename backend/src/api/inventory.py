@@ -1,3 +1,9 @@
+"""Prototype mock inventory endpoint สำหรับ dashboard / demo.
+
+ส่วนนี่เป็นเส้นทางแบบทดลองและไม่ได้เป็นส่วนของ schema หลักที่ compose.yml หรือ main.py ใช้งาน
+สำหรับข้อมูลระเบียนจริง ระบบใช้งาน route stock ที่ mount ภายใต้ /api/stock แทน.
+"""
+
 import datetime
 import random
 from fastapi import APIRouter
@@ -5,6 +11,9 @@ from statsmodels.tsa.arima.model import ARIMA
 import pandas as pd
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
+
+# หมายเหตุ: route นี้เป็น prototype สำหรับ mock dashboard และไม่ได้เป็น active production path
+# สำหรับ workflow ที่ใช้งานจริง main.py จะ mount stock/forecast/settings/risk routers แทน.
 
 @router.get("/mock-forecast")
 def get_inventory_forecast():

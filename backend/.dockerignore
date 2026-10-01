@@ -3,6 +3,7 @@
 .venv
 venv
 env
+# ตัด Python cache และ virtual environment ของเครื่องนักพัฒนาออก เพื่อไม่คัดลอกไฟล์ที่ไม่ใช่ source ลง image
 __pycache__
 *.pyc
 *.pyo

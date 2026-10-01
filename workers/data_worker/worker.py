@@ -1,11 +1,15 @@
-﻿"""Data Worker (ARQ) — ดึงข้อมูลจากภายนอกเข้าระบบ ตามแผน Data Sources & Ingestion Plan
+"""จุดเริ่มต้น ARQ สำหรับงานนำเข้าข้อมูลภายนอกของระบบ
 
+Compose เปิด worker นี้ด้วย ``data_worker.worker.WorkerSettings`` บนคิว ``data_queue``.
+หน้าที่หลักคือแปลงงาน ARQ เป็นการเรียก ingestion สำหรับราคา งบการเงิน และสถิติการค้า
+พร้อมตั้งงานตามเวลา โดยงานสถิติการค้าจะข้ามการดึงข้อมูลหากยังไม่มี source ที่เปิดใช้งาน
+
+ขั้นตอนตามชนิดข้อมูล:
   prices     : ราคาหุ้นอาหารทะเล + ค่าเงิน (รายวัน)      -> MinIO raw-financial + PostgreSQL
   financials : งบการเงิน/กำไรขาดทุน (รายไตรมาส)          -> PostgreSQL + Redis cache
   trade      : สถิติส่งออกกุ้ง/หมึกแช่แข็ง (รายเดือน)     -> MinIO raw-trade
 
-รัน:  python -m arq data_worker.WorkerSettings      (คิว: data_queue)
-Cron ใช้เวลาตาม TZ ของคอนเทนเนอร์ (compose ตั้ง TZ=Asia/Bangkok)
+งาน cron อิงเขตเวลาของคอนเทนเนอร์ ซึ่ง Compose กำหนดเป็น Asia/Bangkok
 """
 import asyncio
 import logging
@@ -27,25 +31,30 @@ logger = logging.getLogger("data_worker")
 
 
 async def startup(ctx):
+    """บันทึกการเริ่มต้น worker และชื่อคิวที่ใช้รับงาน"""
     logger.info("Data worker starting (queue=data_queue)")
 
 
 async def ingest_prices_task(ctx, symbols: Optional[list] = None, backfill: bool = False,
                              start: Optional[str] = None) -> dict:
+    """แปลงวันที่เริ่มต้น แล้วส่งงานดึงราคาแบบ synchronous ไปทำใน thread"""
     start_date = date.fromisoformat(start) if start else None
     return await asyncio.to_thread(stocks.ingest_prices, symbols, backfill, start_date)
 
 
 async def ingest_financials_task(ctx, symbols: Optional[list] = None) -> dict:
+    """เรียกกระบวนการดึงงบการเงินโดยไม่บล็อก event loop ของ ARQ"""
     return await asyncio.to_thread(financials.ingest_financials, symbols)
 
 
 async def ingest_trade_task(ctx, source: Optional[str] = None, months_back: Optional[int] = None,
                             force: bool = False) -> dict:
+    """เรียกกระบวนการเก็บไฟล์สถิติการค้าตาม source และช่วงย้อนหลังที่ระบุ"""
     return await asyncio.to_thread(trade.ingest_trade, source, months_back, force)
 
 
 class WorkerSettings:
+    """กำหนดคิว ฟังก์ชัน งานตามเวลา และขีดจำกัดการทำงานของ data worker"""
     functions = [ingest_prices_task, ingest_financials_task, ingest_trade_task]
     queue_name = "data_queue"
     cron_jobs = [

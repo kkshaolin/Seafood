@@ -1,3 +1,9 @@
+﻿"""Logger helper สำหรับ backend ที่บันทึกไปทั้ง console และไฟล์ใน storage/logs.
+
+ใช้ระบบ rotation และระบุตัวแปร trace_id/span_id จาก OpenTelemetry เพื่อให้ log มีความสอดคล้องเมื่อ
+มีการเรียก API / worker จากหลายส่วนของระบบ.
+"""
+
 import logging
 import os
 import sys
@@ -55,7 +61,7 @@ class CustomLogger:
         logger.setLevel(log_level)
         logger.propagate = False  # ป้องกัน Duplicate Logs ใน Parent Loggers
 
-        # ดึง Trace ID และ Span ID จาก OpenTelemetry มาแนบใน Log อัตโนมัติเพื่อทำ Log Correlation
+        # ดึง trace_id และ span_id จาก OpenTelemetry มาแนบกับ log อัตโนมัติ เพื่อให้ติดตาม request และตรวจสอบสาเหตุของปัญหาได้ง่ายขึ้น
         class TraceContextFilter(logging.Filter):
             def filter(self, record):
                 try:
@@ -71,7 +77,7 @@ class CustomLogger:
                     record.otelTraceID = "0"
                     record.otelSpanID = "0"
                 except Exception as e:
-                    # กำหนดค่า 0 หากเกิดข้อผิดพลาด พร้อมพิมพ์ Error ลง stderr เพื่อไม่ให้บั๊กถูกซ่อน
+                    # หากตรวจไม่พบ context ได้ ให้กำหนดค่า 0 เพื่อให้ log ยังทำงานต่อได้ และพิมพ์ข้อความ warning ลง stderr เพื่อไม่ให้ปัญหาถูกซ่อน
                     record.otelTraceID = "0"
                     record.otelSpanID = "0"
                     import sys
@@ -80,7 +86,7 @@ class CustomLogger:
                 
         logger.addFilter(TraceContextFilter())
 
-        # ป้องกันการเพิ่ม Handler ซ้ำ
+        # ป้องกันการเพิ่ม handler ซ้ำซ้อน เพราะ logger อาจถูกเรียกใช้หลายรอบภายในแอปเดียวกัน
         if not logger.handlers:
             class SafeOtelFormatter(logging.Formatter):
                 def format(self, record):
@@ -95,13 +101,13 @@ class CustomLogger:
                 datefmt="%Y-%m-%d %H:%M:%S",
             )
 
-            # === Handler 1: Console Handler (แสดงผลบนหน้าจอ) ===
+            # === Handler 1: Console Handler (แสดง log บนจอเพื่อให้เห็นผลทันที) ===
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(logging.INFO)
             console_handler.setFormatter(formatter)
             logger.addHandler(console_handler)
 
-            # === Handler 2: General File Handler (บันทึกทุก Level ลง storage/logs/app.log) ===
+            # === Handler 2: General File Handler (บันทึกทุกระดับ log ลง storage/logs/app.log เพื่อเก็บประวัติการทำงาน) ===
             general_log_file = target_dir / "app.log"
             file_handler = RotatingFileHandler(
                 general_log_file,
@@ -113,7 +119,7 @@ class CustomLogger:
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
 
-            # === Handler 3: Module Specific File Handler (บันทึกลง storage/logs/{name}.log) ===
+            # === Handler 3: Module Specific File Handler (บันทึก log ตามชื่อโมดูลลง storage/logs/{name}.log เพื่อค้นหาได้เร็ว) ===
             module_log_file = target_dir / f"{name.lower()}.log"
             module_handler = RotatingFileHandler(
                 module_log_file,
@@ -125,7 +131,7 @@ class CustomLogger:
             module_handler.setFormatter(formatter)
             logger.addHandler(module_handler)
 
-            # === Handler 4: Error File Handler (แยกบันทึกเฉพาะ ERROR & CRITICAL) ===
+            # === Handler 4: Error File Handler (แยก log ที่เป็น ERROR และ CRITICAL เพื่อสะดวกต่อการตรวจสอบปัญหาร้ายแรง) ===
             error_log_file = target_dir / "app_error.log"
             error_handler = RotatingFileHandler(
                 error_log_file,

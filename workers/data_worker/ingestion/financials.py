@@ -25,7 +25,7 @@ CACHE_KEY = "seafood:financials:{symbol}"
 
 
 def _fetch_statements(symbol: str) -> dict[str, pd.DataFrame]:
-    """จุดที่ mock ในเทสต์"""
+    """ดึงงบรายไตรมาสจาก yfinance โดยลองชื่อ attribute สำรองตามลำดับ"""
     import yfinance as yf
 
     ticker = yf.Ticker(symbol)
@@ -44,6 +44,7 @@ def _fetch_statements(symbol: str) -> dict[str, pd.DataFrame]:
 
 
 def to_long(symbol: str, statement: str, df: pd.DataFrame) -> pd.DataFrame:
+    """แปลงตารางงบแบบกว้างให้เป็นแถว symbol/งวด/งบ/รายการ/ค่า และละค่าที่ไม่ใช่ตัวเลข"""
     cols = ["symbol", "period_end", "statement", "line_item", "value"]
     if df is None or df.empty:
         return pd.DataFrame(columns=cols)
@@ -57,6 +58,7 @@ def to_long(symbol: str, statement: str, df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _cache(symbol: str, payload: dict) -> bool:
+    """บันทึกข้อมูลสะสมของ symbol ลง Redis พร้อม TTL; cache ล้มเหลวไม่ขัด ingestion"""
     try:
         import redis
 
@@ -70,6 +72,7 @@ def _cache(symbol: str, payload: dict) -> bool:
 
 
 def ingest_financials(symbols: Optional[list[str]] = None) -> dict:
+    """ดึงงบของแต่ละ symbol, upsert ลง PostgreSQL, cache ข้อมูลสะสม และบันทึกผลรอบงาน"""
     cfg = get_settings()
     symbols = [normalize_symbol(s) for s in (symbols or cfg.stock_symbols)]
     run_id = db.start_run("financials", {"symbols": symbols})

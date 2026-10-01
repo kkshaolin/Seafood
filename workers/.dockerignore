@@ -1,13 +1,17 @@
+# ไฟล์และสภาพแวดล้อมที่ไม่จำเป็นต่อการ build worker image
 .git
 .gitignore
 .venv
 venv
 env
+# ไม่รวม cache และ virtual environment ในเครื่อง เพื่อไม่ให้ไฟล์พัฒนาเหล่านี้เข้าไปใน worker image
+# cache/bytecode ของ Python ไม่ใช่ source ที่ต้องส่งเข้า image
 __pycache__
 *.pyc
 *.pyo
 *.pyd
 .Python
+# ฐานข้อมูลและข้อมูล runtime ใน storage ถูก mount/จัดการแยกจาก image
 *.db
 *.sqlite3
 storage/

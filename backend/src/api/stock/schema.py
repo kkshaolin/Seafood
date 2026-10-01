@@ -1,3 +1,9 @@
+"""Schema ของ response model สำหรับ stock API.
+
+ใช้ Pydantic เป็น contract ระหว่าง FastAPI กับ frontend เพื่อให้ payload ที่ส่งกลับมีรูปแบบคงที่
+และพร้อมใช้สำหรับ validation / serialization.
+"""
+
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict

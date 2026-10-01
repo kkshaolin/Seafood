@@ -1,3 +1,9 @@
+﻿"""โมดูลหลักของ FastAPI backend สำหรับบริการสต็อกและการพยากรณ์สินค้า.
+
+ไฟล์นี้ใช้เป็น entry point ของ backend service ใน compose.yml และกำหนด lifespan, OpenTelemetry,
+CORS, health check รวมถึงการ mount router หลักที่ใช้งานจริง: stock, forecast, settings, risk.
+"""
+
 import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
@@ -20,7 +26,8 @@ import json
 import logging
 import os
 
-# --- OpenTelemetry Setup ---
+# ส่วนตั้งค่า OpenTelemetry: ใช้ติดตาม trace, metric และ log ของ FastAPI เพื่อช่วยดูสภาพแอปจริงใน production
+# บล็อกนี้ทำให้ระบบสามารถบันทึก tracing และ metrics ของ FastAPI เพื่อติดตามเวลาและสถานะการทำงานของ endpoint
 from opentelemetry import trace, metrics
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -34,7 +41,7 @@ from opentelemetry.instrumentation.logging import LoggingInstrumentor
 
 resource = Resource.create({"service.name": os.getenv("OTEL_SERVICE_NAME", "fastapi_backend")})
 
-# Tracing
+# ส่วน tracing: บันทึกแต่ละ request ว่าเริ่มและสิ้นสุดที่ไหน เพื่อช่วยระบุจุดที่ทำงานช้า
 tracer_provider = TracerProvider(resource=resource)
 otlp_trace_exporter = OTLPSpanExporter(
     endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel_collector:4317"), insecure=True
@@ -42,7 +49,7 @@ otlp_trace_exporter = OTLPSpanExporter(
 tracer_provider.add_span_processor(BatchSpanProcessor(otlp_trace_exporter))
 trace.set_tracer_provider(tracer_provider)
 
-# Metrics
+# ส่วน metrics: เก็บตัวชี้วัดเชิงสถิติ เช่น จำนวน request, latency และ error rate เพื่อใช้สังเกตระบบ
 otlp_metric_exporter = OTLPMetricExporter(
     endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel_collector:4317"), insecure=True
 )
@@ -52,7 +59,7 @@ meter_provider = MeterProvider(
 )
 metrics.set_meter_provider(meter_provider)
 
-# Logging Instrumentor injects trace_id and span_id into log records
+# เครื่องมือนี้จะผนวก trace_id และ span_id เข้าไปใน log เพื่อให้ค้นหาต้นเหตุได้ง่ายขึ้นเมื่อมีปัญหา
 LoggingInstrumentor().instrument(set_logging_format=False)
 # -----------------------------
 
@@ -98,7 +105,7 @@ OPENAPI_TAGS = [
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} in environment '{settings.APP_ENV}'...")
     
-    # Initialize ARQ Redis Pool
+    # สร้าง connection pool ของ Redis เพื่อให้ worker และ queue สามารถส่งงานและเรียกงานต่อได้
     try:
         app.state.redis_pool = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
         logger.info("ARQ Redis pool initialized.")
@@ -113,7 +120,7 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Close ARQ Redis Pool
+    # ปิด connection pool เมื่อ backend shutdown เพื่อคืนทรัพยากร Redis ให้กับระบบอย่างเหมาะสม
     if hasattr(app.state, 'redis_pool'):
         await app.state.redis_pool.close()
     logger.info(f"Shutting down {settings.APP_NAME}...")
@@ -140,10 +147,10 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ติดตั้ง OTel FastAPI Instrumentor เพื่อเก็บ Metrics และ Traces
+# ติดตั้ง FastAPI Instrumentor ของ OpenTelemetry เพื่อเก็บ metrics และ trace ของ request ให้ระบบตรวจสอบประสิทธิภาพได้
 FastAPIInstrumentor.instrument_app(app)
 
-# CORS Configuration
+# ส่วน CORS: อนุญาตให้ frontend ที่เข้ามาจาก localhost ต่าง ๆ ติดต่อกับ API ได้อย่างปลอดภัย
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -155,7 +162,9 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Include Routers
+# นำ router หลักเข้ากับแอป: ที่ใช้งานจริงใน compose.yml คือ stock, forecast, settings และ risk
+# Router หลักที่ใช้งานจริงใน compose.yml คือ stock, forecast, settings และ risk;
+# inventory route เป็น mock/demo และไม่ใช่ส่วนผสมของ workflow หลัก.
 from api.stock.router import router as stock_router
 app.include_router(stock_router, prefix="/api")
 from forecasting.router import router as forecast_router

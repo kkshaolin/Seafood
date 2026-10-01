@@ -1,3 +1,8 @@
+"""Initial schema migration สำหรับ users และ students table ครั้งแรกของระบบ.
+
+ไฟล์นี้เป็น migration รุ่นแรกที่สร้าง table พื้นฐานก่อนจะมีการเพิ่ม stock/market schema ใน migration ต่อ ๆ มา.
+"""
+
 """create_initial_tables
 
 Revision ID: 548341a904e8

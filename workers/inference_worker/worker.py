@@ -1,9 +1,16 @@
+"""จุดเริ่มต้น ARQ สำหรับประมวลผลคำขอพยากรณ์
+
+Compose เปิดโมดูลนี้เป็น ``forecasting-worker`` ด้วย
+``inference_worker.worker.WorkerSettings`` ซึ่งรับงานจากคิว ``forecasting_queue``.
+ตัว worker เตรียม path สำหรับ backend, เปิด session ฐานข้อมูลต่อ job
+แล้วส่งคำขอที่ตรวจรูปแบบแล้วให้ ForecastingService ประมวลผลและบันทึกผล
+"""
 import os
 import sys
 import logging
 from arq.connections import RedisSettings
 
-# Setup paths to import backend modules
+# เพิ่ม source ของ backend ลงใน path เพื่อให้ worker ใช้ schema และ session ร่วมกันได้
 workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 backend_src = os.path.join(workspace_root, "backend", "src")
 if backend_src not in sys.path:
@@ -20,14 +27,19 @@ handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)
 logger.addHandler(handler)
 
 async def startup(ctx):
+    """บันทึกข้อความเมื่อ ARQ เริ่ม worker สำหรับคิวพยากรณ์"""
     logger.info("Forecasting Worker starting up...")
 
 async def shutdown(ctx):
+    """บันทึกข้อความเมื่อ ARQ ปิด worker สำหรับคิวพยากรณ์"""
     logger.info("Forecasting Worker shutting down...")
 
 async def run_forecast_task(ctx, req_data: dict) -> dict:
     """
-    ARQ Job Function: ประมวลผล ARIMA Forecasting
+    ประมวลผลงานพยากรณ์หนึ่งรายการที่ส่งผ่าน ARQ
+
+    ตรวจข้อมูลคำขอ สร้าง session ฐานข้อมูล เรียกบริการพยากรณ์ และคืนผลเป็น dict;
+    หากเกิดข้อผิดพลาดจะบันทึก stack trace และคืนสถานะ error ให้ผู้เรียก
     """
     job_id = ctx.get("job_id", "unknown")
     logger.info(f"Starting forecast job {job_id}")
@@ -44,7 +56,7 @@ async def run_forecast_task(ctx, req_data: dict) -> dict:
         return {"status": "error", "error": str(e)}
 
 class WorkerSettings:
-    """การตั้งค่าสำหรับ Forecasting Worker"""
+    """กำหนดคิวงานพยากรณ์ การเชื่อมต่อ Redis และข้อจำกัดการทำงานของ worker"""
     functions = [run_forecast_task]
     queue_name = "forecasting_queue"
     job_timeout = 300 # 5 minutes max

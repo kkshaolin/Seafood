@@ -1,8 +1,10 @@
+/* โหลด reset, utility classes และ component styles ที่ Tailwind สร้างให้ทั้งแอป */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  /* กำหนดสีพื้นหลังและข้อความเริ่มต้น เพื่อให้ทุกหน้ามีรูปแบบพื้นฐานสอดคล้องกัน */
   body {
     @apply bg-gray-50 text-gray-900;
   }

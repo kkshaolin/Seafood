@@ -1,3 +1,9 @@
+"""Router สำหรับ API เกี่ยวกับสต็อกสินค้า (stock) ที่ main.py mount ไว้ภายใต้ prefix /api.
+
+แต่ละ route รับผิดชอบเฉพาะ endpoint เดียว เช่น upload, list, summary, products, history
+เพื่อให้ frontend เรียกข้อมูลสต็อกได้สะดวกและเป็นไปตามโครงสร้าง REST ที่ใช้ใน backend ปัจจุบัน.
+"""
+
 from fastapi import APIRouter, status
 from api.stock.controller import upload_csv, get_stocks, get_summary, get_products, get_history
 from api.stock.schema import (

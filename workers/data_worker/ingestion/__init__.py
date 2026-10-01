@@ -1,1 +1,5 @@
-"""Data ingestion layer: external sources -> MinIO (raw) / PostgreSQL / Redis."""
+"""แพ็กเกจดึงและจัดเก็บข้อมูลจากแหล่งภายนอกใน MinIO, PostgreSQL และ Redis
+
+โมดูลย่อยแยกตามงานราคา งบการเงิน และสถิติการค้า พร้อมตัวช่วยตั้งค่า ฐานข้อมูล
+และพื้นที่จัดเก็บไฟล์ดิบ; เรียกใช้งานผ่าน data worker ที่ Compose เปิดอยู่
+"""

@@ -1,36 +1,26 @@
-# Backend Service (I_LoveSeafood)
+# Backend API
 
-บริการ Backend หลักของระบบ **I_LoveSeafood** พัฒนาด้วย **FastAPI** ทำหน้าที่เป็นศูนย์กลาง (Core API) ในการเชื่อมต่อระหว่างหน้าต่างผู้ใช้งาน (Frontend), ฐานข้อมูล (PostgreSQL), Object Storage (MinIO), และระบบจัดการคิวงาน (ARQ Workers)
+บริการ FastAPI ที่เชื่อมต่อ PostgreSQL, Redis/ARQ และ MinIO รายละเอียดภาพรวมและวิธีรันทั้งระบบดูที่ [README หลัก](../README.md)
 
-## ระบบ Backend นี้ทำหน้าที่อะไรในโปรเจกต์?
+## Runtime
 
-Backend ของ I_LoveSeafood ไม่ได้เป็นแค่ระบบ CRUD ทั่วไป แต่ถูกออกแบบมาเพื่อรองรับงานด้าน Data และ AI Pipeline เฉพาะทางสำหรับข้อมูลอาหารทะเลและตลาด โดยมีหน้าที่หลักดังนี้:
+- `src/main.py` สร้าง FastAPI app, ตั้ง CORS/telemetry, ลงทะเบียน stock, forecasting, settings, risk และ inventory routers และให้ `GET /health`
+- `src/db/database.py` จัดการ async SQLAlchemy engine/session ที่ API ใช้ ส่วน `src/models/` ประกาศตาราง
+- Forecast requests ถูก enqueue ผ่าน Redis โดย router ใน `src/forecasting/router.py`; การคำนวณจริงอยู่ใน `workers/inference_worker/`
+- Stock history อ่านจาก PostgreSQL; forecasting worker ปัจจุบันอ่าน series จาก CSV ใน `storage/` (ดูหมายเหตุใน README หลัก)
 
-1. **จัดการข้อมูลตลาดและสต็อกสินค้า (Market & Stock Management)**
-   - รับและให้บริการข้อมูลสินค้า (Seafood Products), ปริมาณสต็อก, และข้อมูลตลาด/ราคาหุ้น (`api/stock`)
-   - สั่งการ Ingestion Worker ให้ไปดึงข้อมูล Financials หรือ Trading Data จากแหล่งภายนอก (`api/ingestion`)
+โค้ด `api/` ที่ยังไม่มี directory เช่น camera/auth และโมดูลบางส่วนที่อยู่ในเอกสารเก่าไม่ใช่ router ที่ลงทะเบียนจาก `src/main.py` ในปัจจุบัน
 
-2. **พยากรณ์ความต้องการและราคาล่วงหน้า (Time-Series Forecasting)**
-   - มีโมดูล `forecasting/` สำหรับสร้างโมเดลและพยากรณ์ข้อมูลแบบอนุกรมเวลา (Time-Series) โดยใช้ **ARIMAX** 
-   - สามารถรับพารามิเตอร์ (p, d, q) เข้ามาทาง API เพื่อให้ Worker รันประมวลผล Forecasting กลับไปแสดงบน Dashboard
+## โฟลเดอร์
 
-3. **รับภาพจากกล้องเพื่อวิเคราะห์ด้วย AI (Camera & Vision Pipeline)**
-   - มี `api/camera` คอยรับภาพนิ่งหรือ Log จากกล้องที่หน้างาน (เช่น ภาพสายพานคัดแยกอาหารทะเล)
-   - อัปโหลดภาพเข้าสู่ MinIO และสามารถเชื่อมโยงกับ Worker เบื้องหลังเพื่อรัน Inference ทำนายผลได้
+- `src/api/`: controllers/routes/schemas สำหรับ endpoints ที่ app ลงทะเบียน
+- `src/core/`: ค่าตั้งค่ากลางและโค้ดฐานข้อมูลรุ่นเก่า/ทางเลือก; เส้นทาง DB ที่ app ปัจจุบัน import คือ `src/db/database.py`
+- `src/db/`: engine และ session dependency
+- `src/forecasting/`: request/response schemas และ API ที่ส่งงาน forecast/training ให้ ARQ
+- `src/models/`: SQLAlchemy table definitions สำหรับ stock, forecasts, settings และ market data
+- `src/services/`: risk และ storage helpers
+- `alembic/`: migration history; Compose ปัจจุบันไม่ได้สั่ง `alembic upgrade` โดยอัตโนมัติ
 
-4. **ประเมินความเสี่ยง (Risk Evaluation)**
-   - มีบริการคำนวณและประเมินระดับความเสี่ยง (`services/risk_service.py`) เพื่อช่วยในการตัดสินใจทางธุรกิจ
+## Local checks
 
-5. **ระบบยืนยันตัวตนและการจัดการผู้ใช้ (Auth & Users)**
-   - ควบคุมสิทธิ์การเข้าถึง API ทั้งหมดด้วย JWT Authentication
-
-## โครงสร้างภายในโฟลเดอร์ `backend/`
-
-- **`src/`**: แหล่งรวม Business Logic และโค้ดการทำงานทั้งหมด
-  - **`api/`**: แบ่ง API Routes ตามหน้างานชัดเจน ได้แก่ `auth`, `camera`, `ingestion`, `predict`, `stock`, `storage`, `training`, `users`
-  - **`forecasting/`**: โค้ดประมวลผลสถิติและ Machine Learning เฉพาะทางสำหรับ ARIMAX
-  - **`models/`**: ตารางฐานข้อมูล SQLAlchemy (เช่น `market_data`, `stock`)
-  - **`services/`**: ฟังก์ชันตัวช่วยและการคุยกับเซอร์วิสภายนอก (MinIO, Risk Calc)
-  - **`core/` & `db/`**: การตั้งค่าตัวแปรระบบและการเชื่อมต่อ DB
-
-- **`alembic/`**: ระบบควบคุมเวอร์ชันการสร้างและแก้ไขตารางฐานข้อมูล PostgreSQL
+จาก `backend/` ติดตั้ง dependency ตาม `pyproject.toml`/`uv.lock` และรัน backend ตามคำสั่งใน README หลัก การรัน migration ต้องสั่ง Alembic แยกตาม environment ของฐานข้อมูล

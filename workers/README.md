@@ -1,23 +1,24 @@
-# Workers Service (Background Task Processing)
+# Background workers
 
-โฟลเดอร์นี้สำหรับเก็บบริการ **Background Worker** ที่ประมวลผลงานหนักแบบ Asynchronous โดยใช้ **ARQ** ร่วมกับ **Redis Broker**
+Workers ใช้ ARQ/Redis เพื่อแยกงานจาก HTTP request; Compose ปัจจุบันเริ่ม worker 3 services:
 
-## สถาปัตยกรรม Worker แบบเฉพาะทาง (Specialized Workers)
+| Compose service | ARQ settings | หน้าที่ |
+|---|---|---|
+| `forecasting-worker` | `inference_worker.worker.WorkerSettings` | รับ `forecasting_queue`, คำนวณ forecast และบันทึกผล |
+| `training-worker` | `training_worker.worker.WorkerSettings` | รับ `training_queue` และฝึก/บันทึกโมเดล |
+| `data-worker` | `data_worker.worker.WorkerSettings` | งาน ingestion และ schedule |
 
-1. **`worker.py`** (General Worker)
-   - ใช้ประมวลผลข้อมูลทั่วไปและรันคิวเริ่มต้น
-2. **`data_worker.py`** (Data Pipeline Worker)
-   - ใช้รัน Task ที่เกี่ยวข้องกับการจัดการและเตรียมข้อมูล
-3. **`forecasting_worker.py`** (Forecasting Worker)
-   - ทำหน้าที่พยากรณ์ข้อมูล (Time-Series Forecasting) โดยทำงานคู่กับ Backend Forecasting Module
-4. **`inference_worker.py`** (Inference Worker)
-   - ทำนายผลจากโมเดล (ML/DL) ตอบกลับ API อย่างรวดเร็ว
-5. **`training_worker.py`** (Training Worker)
-   - สำหรับการเทรนโมเดลขนาดใหญ่และส่ง Metrics ไปยัง MLflow
+## Source layout
 
-## ระบบย่อย
-- **`ingestion/`**
-  - สคริปต์สำหรับดึงและรวบรวมข้อมูลภายนอก (Data Ingestion) เช่น ดึงข้อมูล Financials, Stocks, และ Trades 
-  - ประกอบด้วยไฟล์เช่น `financials.py`, `stocks.py`, `trade.py`
-- **`tests/`**
-  - Unit Tests สำหรับ Worker และระบบ Ingestion
+- `inference_worker/worker.py`: ARQ job entry point สำหรับ forecast
+- `inference_worker/forecast_model/`: preprocessing, ARIMA fitting, metrics และ service ที่อ่าน CSV/บันทึกผล forecast
+- `training_worker/worker.py`: ARQ entry point สำหรับ training job
+- `data_worker/worker.py`: กำหนด schedule/งานนำเข้าข้อมูลและเรียก ingestion modules
+- `data_worker/ingestion/`: adapters สำหรับ financials, stocks, trades, database และ MinIO
+- `Dockerfile`, `Dockerfile.data`: ภาพ worker สำหรับ inference/training และ data ingestion ตามลำดับ
+
+ชื่อโมดูลในเอกสารรุ่นเก่าอาจไม่ตรงกับ layout ปัจจุบัน; source of truth สำหรับ entry point คือคำสั่ง `command` ของแต่ละ service ใน `compose.yml`/`compose.override.yml`
+
+แม้ `data-worker` และ trade job จะทำงาน แต่ `trade_sources.yml` ปัจจุบันปิดทุก source ไว้ จึงข้ามการดึง trade data จนกว่าจะเปิดแหล่งข้อมูลที่ต้องการ
+
+Forecast worker อ่าน time series จาก CSV ที่ระบุใน service; stock history ของ UI มาจาก PostgreSQL จึงเป็นคนละ data path ดูคำอธิบายและคำสั่งรันที่ [README หลัก](../README.md)

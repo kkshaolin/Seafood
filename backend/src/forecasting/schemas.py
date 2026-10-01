@@ -1,3 +1,9 @@
+"""Schema ของ payload และ response สำหรับ forecasting workflow.
+
+เป้าหมายคือให้ request/response ของ queue job, latest forecast และ metric มีรูปแบบใกล้เคียงกัน
+และสะดวกต่อการใช้กับ frontend หรือ worker process.
+"""
+
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Dict
 from datetime import date

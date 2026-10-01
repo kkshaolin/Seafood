@@ -1,3 +1,9 @@
+"""Legacy ARQ worker scaffold สำหรับการทดลองหรืออ้างอิงตั้งแต่ก่อนมี compose workflow.
+
+ไฟล์นี้ไม่ใช่ active worker definition ใน compose.yml ซึ่งกำหนดให้เรียก workers/ingestion หรือ
+inference_worker.worker.WorkerSettings จาก service แยกภายใต้ arq command ดังนั้นจึงถือว่าเป็น template ที่ไม่ได้ใช้ในปัจจุบัน.
+"""
+
 # https://arq-docs.helpmanual.io/
 import asyncio
 from arq import create_pool

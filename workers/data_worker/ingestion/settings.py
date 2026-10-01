@@ -1,15 +1,21 @@
-"""ตั้งค่าทั้งหมดอ่านจาก environment variables (ค่า default เหมาะกับรันบนเครื่อง local)"""
+"""รวมการตั้งค่าของ ingestion โดยอ่านค่าจาก environment variables
+
+ค่าเริ่มต้นมีไว้สำหรับการพัฒนาบนเครื่อง local; ใน Compose สามารถแทนค่าฐานข้อมูล,
+Redis, MinIO, symbol และไฟล์กำหนดแหล่งข้อมูลผ่าน environment ได้
+"""
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 
 def _csv(name: str, default: str) -> list[str]:
+    """แยกค่ารายการคั่นด้วยจุลภาค ตัดช่องว่าง และละเว้นสมาชิกว่าง"""
     return [x.strip() for x in os.getenv(name, default).split(",") if x.strip()]
 
 
 @dataclass(frozen=True)
 class Settings:
+    """โครงสร้างค่าตั้งต้นที่ ingestion modules ใช้ร่วมกัน"""
     database_url: str
     redis_url: str
     minio_endpoint: str
@@ -25,6 +31,7 @@ class Settings:
 
 
 def get_settings() -> Settings:
+    """อ่าน environment ปัจจุบันและสร้าง snapshot ของค่าตั้งค่า ingestion"""
     return Settings(
         database_url=os.getenv(
             "DATABASE_URL", "postgresql://admin:secretpassword@localhost:5433/my_database"

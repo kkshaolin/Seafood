@@ -1,3 +1,4 @@
+# ให้ Docker ติดตั้ง dependencies เอง ไม่คัดลอก node_modules จากเครื่องนักพัฒนา
 node_modules
 dist
 .env

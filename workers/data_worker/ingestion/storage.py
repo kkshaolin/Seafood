@@ -1,4 +1,8 @@
-"""MinIO helper สำหรับเก็บไฟล์ดิบ (raw landing zone)"""
+"""ตัวช่วยเขียนและตรวจสอบไฟล์ดิบใน MinIO ซึ่งทำหน้าที่เป็น raw landing zone
+
+รองรับข้อมูล byte ทั่วไปและ DataFrame แบบ Parquet พร้อมตรวจ bucket และอ่าน
+SHA-256 metadata เพื่อให้ ingestion ข้ามไฟล์ที่ไม่มีการเปลี่ยนแปลงได้
+"""
 import hashlib
 import io
 import logging
@@ -17,11 +21,15 @@ RAW_FINANCIAL_PREFIX = "raw-financial"
 
 
 def sha256_hex(data: bytes) -> str:
+    """คำนวณ SHA-256 ของเนื้อหาเพื่อใช้เปรียบเทียบไฟล์"""
     return hashlib.sha256(data).hexdigest()
 
 
 class RawStore:
+    """ห่อ MinIO client และจัดการ bucket/การอัปโหลดไฟล์ ingestion"""
+
     def __init__(self, client: Optional[Minio] = None, bucket: Optional[str] = None):
+        """ใช้ client และ bucket ที่ส่งมา หรือสร้างจากค่าตั้งค่าปัจจุบัน"""
         s = get_settings()
         self.client = client or Minio(
             s.minio_endpoint,
@@ -33,6 +41,7 @@ class RawStore:
         self._bucket_ready = False
 
     def ensure_bucket(self) -> None:
+        """ตรวจและสร้าง bucket เพียงครั้งเดียวต่อ instance หากยังไม่มี"""
         if self._bucket_ready:
             return
         if not self.client.bucket_exists(self.bucket):
@@ -47,6 +56,7 @@ class RawStore:
         content_type: str = "application/octet-stream",
         metadata: Optional[dict] = None,
     ) -> str:
+        """อัปโหลด bytes พร้อมชนิดเนื้อหาและ metadata แล้วคืน object key"""
         self.ensure_bucket()
         self.client.put_object(
             self.bucket,
@@ -59,12 +69,13 @@ class RawStore:
         return key
 
     def put_parquet(self, df: pd.DataFrame, key: str) -> str:
+        """serialize DataFrame เป็น Parquet ในหน่วยความจำ แล้วอัปโหลดเป็น object"""
         buf = io.BytesIO()
         df.to_parquet(buf, index=False)
         return self.put_bytes(key, buf.getvalue(), "application/vnd.apache.parquet")
 
     def stored_sha256(self, key: str) -> Optional[str]:
-        """sha256 ที่เราแนบไว้ตอนอัปโหลด (None ถ้าไม่มีไฟล์/ไม่มี metadata)"""
+        """อ่าน SHA-256 ที่แนบไว้กับ object หรือคืน None เมื่อไม่มีไฟล์/metadata"""
         self.ensure_bucket()
         try:
             stat = self.client.stat_object(self.bucket, key)

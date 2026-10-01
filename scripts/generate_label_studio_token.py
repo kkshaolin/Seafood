@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Generate Label Studio API token for testing.
-This script will:
-1. Create admin user if not exists
-2. Generate API token
+สร้าง Label Studio API token สำหรับทดสอบ
+สคริปต์นี้เข้าสู่ระบบด้วยบัญชีผู้ดูแลที่กำหนดไว้ แล้วขอ token สำหรับเรียก API
 """
+# เครื่องมือสำหรับผู้ดูแลเรียกเอง; Compose ไม่ได้รันสคริปต์นี้อัตโนมัติ
 import urllib.request
 import json
 import sys
 
 LS_URL = "http://localhost:8080"
+# ค่าบัญชีตัวอย่างสำหรับทดสอบในเครื่อง; Compose ปัจจุบันไม่ได้เปิด Label Studio service ให้
 ADMIN_USER = "admin"
 ADMIN_PASSWORD = "password"
 
 def api_call(method, endpoint, data=None, token=None):
-    """Make API call to Label Studio"""
+    """เรียก Label Studio API และคืนข้อมูลหรือรายละเอียดข้อผิดพลาดให้ผู้เรียก"""
     url = f"{LS_URL}/api{endpoint}"
     headers = {
         "Content-Type": "application/json",
@@ -28,6 +28,7 @@ def api_call(method, endpoint, data=None, token=None):
     
     req = urllib.request.Request(url, data=req_data, headers=headers, method=method)
     
+    # คืน error แยกจากข้อมูล เพื่อให้ผู้เรียกแจ้งได้ว่าขั้นตอนไหนของการยืนยันตัวตนล้มเหลว
     try:
         response = urllib.request.urlopen(req)
         return json.loads(response.read().decode()), None
@@ -42,7 +43,7 @@ def api_call(method, endpoint, data=None, token=None):
         return None, str(e)
 
 def get_auth_token(username, password):
-    """Login and get auth token"""
+    """เข้าสู่ระบบเพื่อขอ token สำหรับยืนยันตัวตนกับ Label Studio"""
     print(f"[*] Attempting to login as {username}...")
     data, error = api_call("POST", "/user/login", {
         "username": username,
@@ -62,7 +63,7 @@ def get_auth_token(username, password):
     return None
 
 def get_api_token(auth_token):
-    """Get or create API token using auth token"""
+    """อ่าน API token ของบัญชีโดยใช้ token จากขั้นตอนเข้าสู่ระบบ"""
     print("[*] Getting API token...")
     data, error = api_call("GET", "/user", token=auth_token)
     
@@ -83,7 +84,7 @@ def main():
     print("Label Studio API Token Generator")
     print("=" * 60)
     
-    # First, try to login
+    # เริ่มจากเข้าสู่ระบบเพื่อรับ token สำหรับเรียก Label Studio API
     auth_token = get_auth_token(ADMIN_USER, ADMIN_PASSWORD)
     if not auth_token:
         print("\n[!] Could not login with admin credentials")

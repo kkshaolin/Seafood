@@ -1,3 +1,6 @@
+# Backend project configuration สำหรับ FastAPI + SQLAlchemy + Alembic.
+# ไฟล์นี้กำหนด dependency และ Python version ของ backend service ที่ถูก build ผ่าน Docker compose.
+
 [project]
 name = "backend"
 version = "0.1.0"

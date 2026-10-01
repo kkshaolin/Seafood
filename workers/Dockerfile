@@ -1,3 +1,5 @@
+# Image หลักสำหรับ forecasting-worker และ training-worker; Compose เลือก WorkerSettings
+# ผ่าน command ของแต่ละ service ส่วน CMD ด้านล่างเป็นค่าเริ่มต้นเมื่อไม่ override
 # Stage 1: Builder - ติดตั้ง dependencies ให้เร็วที่สุดด้วย uv
 FROM python:3.11-slim AS builder
 
@@ -35,8 +37,7 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# คัดลอก Source Code
-# เนื่องจากมีการแบ่ง Worker เป็น 3 โฟลเดอร์ (data_worker, inference_worker, training_worker) 
+# คัดลอก source ของ worker ทั้งสามแพ็กเกจที่ image นี้อาจต้องใช้
 COPY data_worker/ ./data_worker/
 COPY inference_worker/ ./inference_worker/
 COPY training_worker/ ./training_worker/
@@ -52,7 +53,7 @@ RUN mkdir -p /app/storage/data \
 # สลับไปใช้ appuser
 USER appuser
 
-# Health Check สำหรับ ARQ Worker
+# ตรวจว่ามี process ของ ARQ ทำงานอยู่ในคอนเทนเนอร์
 HEALTHCHECK --interval=60s --timeout=30s --start-period=10s --retries=3 \
     CMD pgrep -f arq || exit 1
 

@@ -1,3 +1,4 @@
+# Tempo รับ traces แบบ OTLP จาก Collector และเก็บ blocks/WAL ไว้ใน local storage
 server:
   http_listen_port: 3200
 

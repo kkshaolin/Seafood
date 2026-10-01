@@ -1,8 +1,9 @@
-# Storage (Local Data & Mounts)
+# Storage mounts
 
-โฟลเดอร์ที่ใช้สำหรับ Mount Volume ของ Services ต่าง ๆ เพื่อให้ข้อมูลยังคงอยู่ (Persistent Data) 
+โฟลเดอร์นี้เป็นพื้นที่ runtime สำหรับไฟล์ข้อมูล/โมเดลที่ bind-mount หรืออ่านโดย workers ไม่ใช่ source code:
 
-## โครงสร้างหลัก
-- **`data/`**: เก็บข้อมูลดิบ, ข้อมูลเทรน (เช่น `conll2003`), ข้อมูลรูปภาพจาก MinIO, ข้อมูล Label Studio, และการส่งออกข้อมูล CSV/Excel (`api_snapshot.csv`)
-- **`logs/`**: เก็บไฟล์บันทึกการทำงานของระบบ (Application Logs, Worker Logs, Training Logs)
-- **`models/`**: เก็บไฟล์โมเดลที่ถูกเทรนและบันทึกเอาไว้ แบ่งออกเป็นโมเดลสำหรับ Time-Series และ Non-Time-Series รวมถึงโมเดลที่มี Checkpoint ระหว่างเทรน
+- `data/`: CSV input และ dataset ต่าง ๆ รวมถึง CSV ที่ forecasting worker ใช้
+- `models/`: ไฟล์โมเดล time-series และ model artifacts ที่ worker สร้าง/โหลด
+- `logs/`: log files หากตั้งค่าให้เขียนลง filesystem
+
+ใน Git เก็บเพียง `.gitkeep` เพื่อรักษาโฟลเดอร์ว่างไว้ ข้อมูลจริง, model binaries และผลลัพธ์ generated ถูก ignore จึงไม่ปรากฏครบใน repository และไม่ควรเพิ่มไฟล์ข้อมูลอ่อนไหวหรือไฟล์ขนาดใหญ่โดยไม่จำเป็น

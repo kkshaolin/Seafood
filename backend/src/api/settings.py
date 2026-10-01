@@ -1,3 +1,9 @@
+"""API สำหรับอ่านและอัปเดตค่า setting ของระบบ เช่น risk preference และ threshold.
+
+ข้อมูลถูกเก็บในตาราง system_settings เพื่อให้ frontend/backend ใช้ค่าเดียวกันและสามารถปรับพฤติกรรม
+ของการประเมินความเสี่ยงได้แบบ dynamic.
+"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

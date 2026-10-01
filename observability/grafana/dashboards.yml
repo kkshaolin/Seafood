@@ -1,3 +1,4 @@
+# กำหนด file provider ให้ Grafana อ่าน dashboard JSON จากโฟลเดอร์ที่ mount เข้ามา
 apiVersion: 1
 providers:
   - name: 'default'

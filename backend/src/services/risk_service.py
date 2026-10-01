@@ -1,3 +1,9 @@
+"""Service สำหรับคำนวณระดับความเสี่ยงของสต็อกแบบง่ายและ determinist.
+
+ผลลัพธ์นี้แสดงสถานะ Normal / Warning / Critical ตาม threshold ที่ปรับตาม risk preference
+และใช้โดย API /risk/evaluate ให้ frontend จัดการข้อความแจ้งเตือนได้ทันที.
+"""
+
 class RiskService:
     @staticmethod
     def evaluate_risk(current_stock: float, forecast_stock: float, threshold: float, risk_preference: str) -> dict:

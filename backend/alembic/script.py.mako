@@ -1,3 +1,4 @@
+## Template สำหรับสร้างไฟล์ revision ใหม่; บรรทัดนี้เป็น Mako comment จึงไม่ถูกคัดลอกไปใน migration
 """${message}
 
 Revision ID: ${up_revision}

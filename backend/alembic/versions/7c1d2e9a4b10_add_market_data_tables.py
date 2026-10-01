@@ -1,3 +1,9 @@
+"""Migration สำหรับเพิ่มตารางข้อมูลตลาดและข้อมูลการ ingestion.
+
+ตารางเหล่านี้ใช้จัดเก็บราคาหุ้น, financial statements และ log การดึงข้อมูลจากภายนอก
+เพื่อรองรับ dashboard และ model analysis ในภายหลัง.
+"""
+
 """add_market_data_tables
 
 Revision ID: 7c1d2e9a4b10

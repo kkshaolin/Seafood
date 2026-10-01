@@ -1,3 +1,9 @@
+"""Router สำหรับจัดคิว forecast jobs และ queryผลลัพธ์จากฐานข้อมูล.
+
+ด้วย compose.yml backend service จะประกาศอุปกรณ์และ worker ให้ทำงานภายใต้ Redis queue
+ดังนั้น endpoint เหล่านี้ใช้สำหรับส่งงาน forecasting และตรวจสอบสถานะของ job.
+"""
+
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from arq import create_pool

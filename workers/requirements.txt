@@ -1,4 +1,5 @@
-arq==0.25.0
+# Dependencies สำหรับ worker ที่รันงาน inference/training; Dockerfile แยกติดตั้งชุดนี้ใน image ของ worker
+arq==0.25.0
 redis==5.0.1
 minio==7.2.0
 datasets==2.16.1

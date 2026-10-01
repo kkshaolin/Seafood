@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-Script สำหรับโหลด dataset จาก Hugging Face และเก็บใน MinIO
+ดาวน์โหลดชุดข้อมูลจาก Hugging Face แล้วส่งไฟล์ไปยัง MinIO
+
+เป็นเครื่องมือให้ผู้ดูแลเรียกใช้เอง; Docker Compose และตัวแอปไม่ได้รันไฟล์นี้อัตโนมัติ
 """
 import os
 import argparse
@@ -9,6 +11,7 @@ from minio import Minio
 from minio.error import S3Error
 
 def main():
+    # รับชื่อชุดข้อมูลและ bucket จาก command line เพื่อกำหนดแหล่งและปลายทางตอนเรียก
     parser = argparse.ArgumentParser(description='Download dataset to MinIO')
     parser.add_argument('--dataset', type=str, required=True, 
                        help='Dataset name from Hugging Face (e.g., conll2003)')
@@ -17,7 +20,7 @@ def main():
     
     args = parser.parse_args()
     
-    # Initialize MinIO client
+    # เชื่อมต่อ object storage ที่รองรับ S3 โดยอ่าน endpoint และ credentials จาก environment
     minio_client = Minio(
         os.getenv('MINIO_ENDPOINT', 'localhost:9000'),
         access_key=os.getenv('MINIO_ACCESS_KEY', 'minioadmin'),
@@ -25,21 +28,21 @@ def main():
         secure=False
     )
     
-    # Create bucket if not exists
+    # สร้าง bucket หากยังไม่มี เพื่อให้ขั้นตอนถัดไปเขียนไฟล์ได้
     if not minio_client.bucket_exists(args.bucket):
         minio_client.make_bucket(args.bucket)
         print(f"Created bucket: {args.bucket}")
     
-    # Load dataset
+    # ดาวน์โหลดข้อมูลและ metadata ด้วยไลบรารี Hugging Face Datasets
     print(f"Loading dataset: {args.dataset}")
     dataset = load_dataset(args.dataset)
     
-    # Save locally first
+    # บันทึกชุดข้อมูลลง disk ชั่วคราว เพราะ MinIO client อัปโหลดจาก path ของไฟล์
     local_path = f"/tmp/datasets/{args.dataset.replace('/', '_')}"
     dataset.save_to_disk(local_path)
     print(f"Saved dataset to: {local_path}")
     
-    # Upload to MinIO
+    # อัปโหลดทุกไฟล์โดยคงโครงสร้าง path ย่อยไว้ใต้ prefix ของชุดข้อมูล
     print(f"Uploading to MinIO bucket: {args.bucket}")
     for root, dirs, files in os.walk(local_path):
         for file in files:

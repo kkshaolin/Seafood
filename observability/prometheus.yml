@@ -1,3 +1,4 @@
+# อ่าน metrics จาก endpoint ของ OpenTelemetry Collector ทุก 15 วินาที
 global:
   scrape_interval: 15s
 

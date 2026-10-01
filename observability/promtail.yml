@@ -1,3 +1,4 @@
+# Promtail ค้นหา log ของ Docker containers เพิ่มป้ายกำกับจาก Compose แล้วส่งไป Loki
 server:
   http_listen_port: 9080
   grpc_listen_port: 0

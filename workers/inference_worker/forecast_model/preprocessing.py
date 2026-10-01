@@ -1,14 +1,18 @@
+"""ตรวจสอบและเตรียมข้อมูลอนุกรมเวลาก่อนนำไปฝึกหรือประเมินโมเดล"""
 import pandas as pd
 import numpy as np
 
 class PreprocessingError(Exception):
+    """ข้อผิดพลาดเมื่อข้อมูลไม่เพียงพอหรือไม่พร้อมสำหรับการพยากรณ์"""
     pass
 
 def prepare_time_series(df: pd.DataFrame, target_col: str, date_col: str) -> pd.DataFrame:
     """
-    1. Validate Frequency (Monthly)
-    2. Handle Missing values
-    3. Handle NaN and Infinite values
+    แปลงวันที่และทำความสะอาด target จากนั้นรวมข้อมูลเป็นรายเดือน
+
+    target จะรวมด้วยผลบวก; คอลัมน์ตัวแปรภายนอกจะเฉลี่ยรายเดือน
+    เดือนที่ขาดจะเติม target ด้วยศูนย์ และเติมตัวแปรภายนอกด้วยค่าก่อนหน้า/
+    ค่าถัดไปก่อนใช้ศูนย์เป็นค่าเริ่มต้น ตรวจข้อมูลขั้นต่ำก่อนคืน DataFrame
     """
     if df.empty:
         raise PreprocessingError("Insufficient data: Dataset is empty.")
@@ -16,7 +20,7 @@ def prepare_time_series(df: pd.DataFrame, target_col: str, date_col: str) -> pd.
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col])
     
-    # Check for invalid values
+    # ค่าอนันต์ใน target ถูกถือเป็น missing ก่อนทำความสะอาด
     if df[target_col].isin([np.inf, -np.inf]).any():
         df[target_col] = df[target_col].replace([np.inf, -np.inf], np.nan)
         
@@ -25,20 +29,19 @@ def prepare_time_series(df: pd.DataFrame, target_col: str, date_col: str) -> pd.
     if len(df) < 2:
         raise PreprocessingError("Insufficient data: Need at least 2 data points after dropping NaNs.")
     
-    # Set index and aggregate by month (Month Start)
+    # ใช้วันเป็น index และจัดกลุ่มตามจุดเริ่มต้นของแต่ละเดือน
     df.set_index(date_col, inplace=True)
     
-    # Resample to Monthly frequency and sum target column
-    # If exogenous variables are added later, aggregation logic should change per column
+    # รวม target ด้วยผลบวก และกำหนดวิธีรวมแยกตามชนิดคอลัมน์
     agg_dict = {target_col: 'sum'}
-    # Support exogenous variables if present
+    # ตัวแปรอื่นทั้งหมดถือเป็น exogenous และเฉลี่ยภายในเดือน
     exog_cols = [c for c in df.columns if c != target_col]
     for c in exog_cols:
         agg_dict[c] = 'mean'
         
     monthly_df = df.resample('MS').agg(agg_dict)
     
-    # Handle missing months by forward fill then backward fill, or 0 for target
+    # เติมเดือนที่ไม่มีแถว: target เป็นศูนย์ ส่วน exogenous ใช้ ffill/bfill แล้วจึงใช้ศูนย์
     monthly_df[target_col] = monthly_df[target_col].fillna(0.0)
     for c in exog_cols:
         monthly_df[c] = monthly_df[c].ffill().bfill().fillna(0.0)
@@ -50,7 +53,7 @@ def prepare_time_series(df: pd.DataFrame, target_col: str, date_col: str) -> pd.
 
 def chronological_split(df: pd.DataFrame, train_ratio: float = 0.8):
     """
-    Chronological Train/Test split.
+    แบ่ง train/test ตามลำดับเวลาโดยไม่สลับแถว และตรวจไม่ให้ชุดใดว่าง
     """
     if len(df) < 2:
         raise PreprocessingError("Not enough data to split.")

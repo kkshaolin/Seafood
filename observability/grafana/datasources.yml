@@ -1,3 +1,4 @@
+# สร้างการเชื่อมต่อ Grafana ไปยังบริการ metrics, traces, logs และฐานข้อมูลไว้ล่วงหน้า
 apiVersion: 1
 datasources:
   - name: Prometheus

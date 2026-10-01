@@ -1,3 +1,4 @@
+# ตั้ง Loki แบบ process เดียวและใช้ filesystem สำหรับ Compose ที่รันในเครื่องพัฒนา
 auth_enabled: false
 
 server:

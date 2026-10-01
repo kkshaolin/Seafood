@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    // แยกการตรวจ TypeScript ของไฟล์ตั้งค่าเครื่องมือที่รันใน Node/Vite ออกจากโค้ดบนเบราว์เซอร์
     "composite": true,
     "skipLibCheck": true,
     "module": "ESNext",

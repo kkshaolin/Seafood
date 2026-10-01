@@ -1,144 +1,128 @@
-# I_LoveSeafood: AI Ecosystem Workspace
+# I_LoveSeafood
 
-รีโพสิทอรีนี้เป็นโครงสร้างระบบ **I_LoveSeafood AI Ecosystem** ซึ่งถูกออกแบบมาเพื่อจัดการระบบตลาดอาหารทะเล วิเคราะห์ข้อมูลการเงิน/หุ้น และประมวลผลภาพจากกล้องด้วย AI แบบครบวงจร โดยใช้สถาปัตยกรรมแบบแยกส่วน (Modular Architecture) ที่ช่วยกระจายโหลดการประมวลผลระหว่าง API, Frontend, และระบบ Worker ได้อย่างมีประสิทธิภาพ
+โปรเจกต์นี้เป็นระบบตัวอย่างจัดการสต็อกกุ้งและข้อมูลตลาด ประกอบด้วย Dashboard, FastAPI, PostgreSQL, worker แบบ asynchronous และชุดเครื่องมือ observability โดยแยกส่วนที่ทำงานจริงใน Compose ออกจาก prototype/utility ที่ยังไม่เชื่อมต่อไว้ชัดเจน
 
-## ระบบนี้ทำอะไรบ้าง? (Core Capabilities)
-
-1. **Computer Vision & Camera Analysis**: มี API สำหรับรับข้อมูลภาพจากกล้อง และใช้ระบบ Inference ทำนายผลเพื่อคัดแยกหรือประมวลผลข้อมูลอาหารทะเล
-2. **Time-Series Forecasting (ARIMAX)**: ระบบวิเคราะห์และพยากรณ์แนวโน้มข้อมูลตลาดและราคาหุ้นล่วงหน้าด้วยโมเดล ARIMAX
-3. **Market & Stock Data Ingestion**: มีระบบ Worker สำหรับดูดข้อมูลและรวบรวมข้อมูลงบการเงิน (Financials) และการซื้อขาย (Trades) จากแหล่งข้อมูลภายนอกแบบอัตโนมัติ
-4. **Risk Management**: มีโมดูลสำหรับคำนวณและประเมินความเสี่ยงทางธุรกิจและตลาด
-5. **Asynchronous AI Pipelines**: แยกระบบการเทรนโมเดล (Training) และการทำนายผล (Inference) ไปทำงานอยู่เบื้องหลังผ่าน Background Workers เพื่อไม่ให้กระทบการทำงานของระบบหลัก
-
-## โครงสร้างโฟลเดอร์และไฟล์สำคัญ (Directory Structure)
+## ภาพรวมการทำงาน
 
 ```text
-ai-ecosystem-workspace/
-├── frontend/                 # ระบบหน้าบ้าน (React, TypeScript, Vite, Tailwind CSS)
-├── backend/                  # บริการ Backend API (FastAPI)
-│   ├── alembic/              # Database Migration Management (Alembic)
-│   └── src/                  # Source Code หลัก
-│       ├── api/              # API Controllers, Routers & Schemas (auth, camera, ingestion, stock, etc.)
-│       ├── core/             # ไฟล์ตั้งค่าส่วนกลาง (Configuration)
-│       ├── db/               # การเชื่อมต่อฐานข้อมูล SQLAlchemy
-│       ├── forecasting/      # ระบบพยากรณ์เวลาและข้อมูล (Time-Series Forecasting / ARIMAX)
-│       ├── models/           # Data Models / Database Tables
-│       ├── services/         # Helper Services & Business Logic
-│       ├── utils/            # ฟังก์ชันช่วยเหลือ
-│       └── main.py           # จุดเริ่มต้น FastAPI App
-│   
-│
-├── storage/                  # โฟลเดอร์เก็บข้อมูลจำลองและระบบ (Volume Data)
-│   ├── data/                 # ที่เก็บข้อมูลดิบและ Dataset (เช่น conll2003, minio photos)
-│   ├── logs/                 # ไฟล์ Log การทำงานของระบบ
-│   └── models/               # ที่เก็บไฟล์โมเดล AI แบ่งตาม Time-Series และแบบทั่วไป
-│
-├── workers/                  # บริการ Worker ทำงานเบื้องหลัง (Background Worker)
-│   ├── ingestion/            # ระบบดึงข้อมูลจากแหล่งภายนอก (Financials, Stocks, Trades)
-│   ├── data_worker.py        # Worker จัดการและเตรียมข้อมูล
-│   ├── forecasting_worker.py # Worker ประมวลผลโมเดลพยากรณ์
-│   ├── training_worker.py    # Worker สำหรับงานเทรนโมเดล
-│   ├── inference_worker.py   # Worker สำหรับรันทำนายผล 
-│   └── worker.py             # Worker ประมวลผลข้อมูลทั่วไป
-│
-├── observability/            # การตั้งค่าระบบ Observability (Metrics, Logs, Traces)
-│   ├── grafana/, loki.yml, otel-collector.yml, prometheus.yml, promtail.yml, tempo.yml
-│
-├── sandbox/                  # พื้นที่ทดสอบโค้ดและสคริปต์ (Experiments / API Tests)
-├── diagrams/                 # ไฟล์แผนผังสถาปัตยกรรม (Architecture Diagrams)
-├── scripts/                  # สคริปต์ตัวช่วยและการจัดการแอดมิน
-└── compose.yml               # การตั้งค่า Docker Compose สำหรับคอนเทนเนอร์ทั้งหมด
+Browser (React + Vite/Nginx)
+  └─ /api/* ──> FastAPI backend
+                 ├─ PostgreSQL: ประวัติ stock, settings, forecast results
+                 ├─ Redis/ARQ ──> Forecast worker ──> forecast job
+                 ├─ Redis/ARQ ──> Training worker ──> บันทึกโมเดล
+                 └─ Risk API
+
+Data worker ──> แหล่งข้อมูลตลาด/การเงิน ──> PostgreSQL และ MinIO
+Application/containers ──> OpenTelemetry, Prometheus, Loki, Tempo ──> Grafana
 ```
 
-## คุณสมบัติหลักที่อัปเดตล่าสุด (Key Technical Features)
+## ส่วนที่ทำงานในระบบปัจจุบัน
 
-1. **Decoupled Architecture**: แยกการทำงานระหว่าง Web Server (FastAPI), Training Worker, และ Inference Worker ขาดจากกัน รองรับการ Scale แบบอิสระ
-2. **FastAPI & ARQ Integration**: 
-   - Backend รับ API Request และส่งงานข้ามไปให้ Worker ผ่าน Redis Queue (`training_queue` และ `inference_queue`) 
-   - รองรับ **Distributed Tracing Context Propagation** ข้าม Async Message Queue โดยการดึง Context ใส่ `carrier` แนบไปกับ Job Argument ทำให้ Trace ไม่ขาดตอน
-   - มีระบบ Synchronous Inference (`/predict`) ที่ Backend รอรับผลจาก Worker กลับมาตอบผู้ใช้งานได้ทันที
-3. **MLflow & MinIO Model Registry**: 
-   - ระบบจัดการโมเดลอัตโนมัติ Training Worker เทรนเสร็จบันทึก Model Artifacts, Params, Metrics ลง MLflow (ซึ่งเก็บไฟล์ใน MinIO เบื้องหลัง)
-   - Inference Worker โหลดโมเดลด้วย `mlflow.pyfunc.load_model` พร้อม In-memory Caching ช่วยลดเวลา Cold Start
-4. **Database Migration ด้วย Alembic**: ควบคุมเวอร์ชันของตารางใน PostgreSQL ด้วย Migration Scripts
-5. **CORS Security & Authentication**: ตั้งค่าอนุญาตให้ Frontend (เช่น React, Vue) เรียกใช้งาน API ได้ผ่าน `CORS_ORIGINS` พร้อมระบบ JWT Authentication 
-6. **Full Observability Stack (O11y)**: ติดตั้งระบบตรวจสอบสถานะระบบครบวงจรด้วย **OpenTelemetry** ดักจับ Traces & Metrics จากโค้ดส่งไปที่ Collector ผูกรวมกับ Centralized Logs (Loki) และเก็บ Traces (Tempo)
-   - **Log Correlation**: ใช้ Custom `TraceContextFilter` สอดแทรก `trace_id` และ `span_id` ลงใน Log อัตโนมัติ รองรับการเชื่อมต่อกับ Worker อย่างปลอดภัย
-   - **Grafana Provisioning**: เชื่อม Datasource ไว้ล่วงหน้า สามารถคลิกจาก Log ข้ามไปดู Trace ได้ทันที (Log-to-Trace)
-## ขั้นตอนการติดตั้งและการรันระบบ (Getting Started Guide)
+- **Dashboard (`frontend/src/components/Dashboard.tsx`)** โหลดค่าตั้งค่า สรุปและประวัติ stock ผล forecast ล่าสุด และแสดงการประเมินความเสี่ยง การรัน forecast/training เริ่มงานผ่าน API แล้วติดตาม job
+- **Backend (`backend/src/main.py`)** ลงทะเบียน API สำหรับ stock, forecasting, settings, risk และ inventory ตัว inventory ปัจจุบันเป็น mock/demo route พร้อม health check ที่ `/health`
+- **Forecasting worker (`workers/inference_worker/worker.py`)** รับงานจาก `forecasting_queue`; **training worker (`workers/training_worker/worker.py`)** รับงานฝึกโมเดลจาก `training_queue`
+- **Data worker (`workers/data_worker/worker.py`)** รันงาน ingestion ตามกำหนดเวลาและใช้โมดูลใน `workers/data_worker/ingestion/`; ตัวอย่างเช่น trade job จะข้ามการดึงข้อมูลเมื่อ source ถูกปิดไว้ใน config
+- **PostgreSQL, Redis, MinIO และ observability services** ถูกกำหนดใน `compose.yml`
 
-### ข้อกำหนดเบื้องต้น (Prerequisites)
-- **Docker & Docker Compose**: จำเป็นสำหรับการรัน Services ทั้งระบบอย่างสมบูรณ์แบบ
-- **NVIDIA GPU & Drivers** (Optional): หากต้องการเทรนโมเดลด้วยความเร็วสูง (Docker Compose ต้องการ `nvidia` driver)
-- **Python**: เวอร์ชัน 3.10 หรือ 3.11 (หากต้องการรันแบบ Local นอก Docker)
+### แหล่งข้อมูล Forecast กับ Stock History ต่างกัน
 
-### การตั้งค่า Environment Variables
-สำหรับรันบน Docker ส่วนใหญ่ถูกเซ็ตอัปไว้ใน `compose.yml` แล้ว หากจะรัน Local หรือแก้ไข ให้ดูตัวแปรที่สำคัญดังนี้:
-```env
-DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
-REDIS_URL=redis://redis:6379
-MINIO_ENDPOINT=minio:9000
-MINIO_ACCESS_KEY=admin
-MINIO_SECRET_KEY=password123
-MLFLOW_TRACKING_URI=http://mlflow:5000
-MLFLOW_S3_ENDPOINT_URL=http://minio:9000
-AWS_ACCESS_KEY_ID=admin
-AWS_SECRET_ACCESS_KEY=password123
+Stock History ของหน้าเว็บอ่านจาก PostgreSQL ผ่าน `/api/stock/history` ส่วน `ForecastingService` ใน worker ปัจจุบันอ่าน time series จาก `storage/data/csv_file/shrimp_stock_monthly_4y.csv` ไม่ได้อ่านประวัติจากฐานข้อมูลโดยตรง และมี mapping `Premium_White_Shrimp` ไปเป็น `tiger_shrimp_size_L` สำหรับไฟล์ชุดนั้น ดังนั้นการมีประวัติ stock ในฐานข้อมูลอย่างเดียวไม่ได้รับประกันว่า worker จะสร้าง forecast ได้ ต้องมีไฟล์ CSV และข้อมูลสินค้าที่ตรงกับ mapping ด้วย
+
+## ส่วนที่ยังไม่เชื่อมต่อหรือเป็นเครื่องมือเสริม
+
+- กลุ่ม camera API ใน `frontend/src/api/camera.ts` และ `frontend/src/services/api.ts` เป็น client helpers แต่ backend ปัจจุบันยังไม่ได้ลงทะเบียน camera router; หน้า Dashboard จึงยังไม่มี stream กล้องจริง ส่วนภาพที่แสดงเป็น placeholder และ branch กล้องจริงยังไม่ทำงาน
+- `frontend/src/services/api.ts` เป็น wrapper รุ่นเก่าที่ไม่ได้ใช้โดย Dashboard ปัจจุบัน ซึ่งใช้โมดูล `frontend/src/api/` แทน
+- `frontend/src/api/stock.ts` ยังมี helper สำหรับเรียก endpoint upload แต่ปุ่มอัปโหลดถูกเอาออกจาก Dashboard แล้ว; backend upload endpoint ยังอยู่
+- `backend/src/api/inventory.py` ลงทะเบียนกับ backend แต่หน้า Dashboard ปัจจุบันไม่ได้เรียกใช้งาน
+- `scripts/` เป็นสคริปต์ที่เรียกใช้ด้วยตนเอง ไม่ได้เริ่มอัตโนมัติจาก Compose; แผนภาพใน `diagrams/` เป็นเอกสาร ไม่ใช่ input ของระบบ
+- Worker ที่เริ่มทำงานไม่ได้แปลว่าทุก connector จะดึงข้อมูลจริงเสมอไป; ตรวจเปิด/ปิด source ใน config ของ ingestion ก่อนคาดหวังผลลัพธ์
+- JSON เช่น lockfile และ Grafana dashboard definitions เป็นไฟล์ข้อมูลที่ parser ไม่รองรับ comment; คำอธิบายบทบาทอยู่ใน README และคอมเมนต์ของไฟล์ provisioning ที่อ้างถึงไฟล์เหล่านั้น
+
+## โครงสร้างโฟลเดอร์
+
+```text
+.
+├── backend/
+│   ├── alembic/                 # migration scripts และการตั้งค่า Alembic
+│   └── src/
+│       ├── api/                 # endpoints: inventory, risk, settings, stock
+│       ├── core/                # application configuration และ legacy/shared setup
+│       ├── db/                  # SQLAlchemy async engine และ session dependency ที่ app ใช้
+│       ├── forecasting/         # forecast API, request/response schemas
+│       ├── models/              # ORM tables: stock, forecast, settings, market data
+│       ├── services/            # risk และ object-storage helpers
+│       └── main.py              # FastAPI entry point และ router registration
+├── frontend/
+│   ├── src/api/                 # API client แยกตามโดเมน
+│   ├── src/components/          # Dashboard และ UI
+│   ├── src/services/            # legacy API wrapper
+│   └── Dockerfile, nginx.conf, vite.config.ts
+├── workers/
+│   ├── data_worker/             # ingestion schedule และ connectors
+│   ├── inference_worker/        # ARIMA forecast และ worker entry point
+│   └── training_worker/         # model training worker
+├── observability/               # Collector, Prometheus, Loki, Tempo, Grafana config
+├── scripts/                     # utilities ที่เรียกใช้ด้วยตนเอง
+├── storage/                     # mount points สำหรับข้อมูลและโมเดล; เนื้อหาจริงถูก ignore
+├── diagrams/                    # draw.io architecture/workflow source files
+├── compose.yml                  # stack หลัก (production-style Nginx frontend)
+└── compose.override.yml         # development overrides: Vite, hot reload, dashboards
 ```
 
-### การรันสำหรับนักพัฒนา (Local Development)
-หากต้องการรันเซอร์วิสแบบไม่พึ่งพา Docker (รัน Services ฐานข้อมูลด้วย Docker แล้วรัน App ด้วย Python):
+โฟลเดอร์ dependencies, virtual environments, caches, build output, runtime data และ model binaries ไม่ใช่ source files ของโปรเจกต์ จึงไม่ได้รับ inline comments
+
+## เริ่มระบบด้วย Docker Compose
+
+ต้องติดตั้ง Docker Desktop/Engine และ Docker Compose ก่อน คำสั่งจาก repository root:
+
 ```bash
-# รัน FastAPI (Backend)
-cd backend
-uv pip install -r pyproject.toml
-uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+# Development: Compose จะรวม compose.override.yml ให้อัตโนมัติ
+docker compose up -d --build
 
-# รัน Training Worker (Terminal 2)
-cd workers
-uv run arq training_worker.WorkerSettings
+# ดูสถานะและ log
+docker compose ps
+docker compose logs -f backend frontend forecasting-worker
 
-# รัน Inference Worker (Terminal 3)
-uv run arq inference_worker.WorkerSettings
+# หยุด containers โดยเก็บ named volumes/ข้อมูลไว้
+docker compose down
 ```
 
-## รายการ API Endpoints ที่สำคัญ (Key API Endpoints)
+หน้าเว็บ development อยู่ที่ <http://localhost:8081/> และ backend API/Swagger อยู่ที่ <http://localhost:8000/> และ <http://localhost:8000/docs/> ตามลำดับ ในโหมด development Vite proxy ใช้ชื่อ Docker service `backend:8000` จึงต้องเข้าถึงผ่าน frontend ใน Compose network
 
-### System Health
-- `GET /health` : ตรวจสอบสถานะการเชื่อมต่อของระบบทั้งหมด (Postgres, Redis, MinIO)
+พอร์ตและหน้าจออื่นที่กำหนดไว้ใน Compose:
 
-### AI Pipelines (Core Features)
-- `POST /add_train_queue_time` : สั่งเริ่มเทรนโมเดล (Asynchronous ส่งงานเข้า `training_queue` คืนค่า job_id ทันที)
-- `GET /job_status/{job_id}` : ตรวจสอบสถานะการทำงานจาก ARQ (รองรับทั้งงานเทรนและทำนายผล)
-- `POST /predict` : ส่งทำนายผล (Synchronous รอรับผลกลับมาพร้อมกับ Prediction JSON)
+| Service | ที่อยู่จาก host |
+|---|---|
+| PostgreSQL | `localhost:5433` |
+| Redis | `localhost:6379` |
+| MinIO API / Console | `localhost:9000` / `localhost:9001` |
+| MLflow | `localhost:5000` |
+| Prometheus | `localhost:9090` |
+| Grafana | `localhost:3000` |
+| Loki / Tempo | `localhost:3100` / `localhost:3200` |
 
-### Authentication & Users
-- `POST /api/auth/register` : สมัครสมาชิกผู้ใช้งานใหม่
-- `POST /api/auth/login` : เข้าสู่ระบบเพื่อรับ JWT Access Token
-- `GET /api/auth/me` : ดูข้อมูลผู้ใช้ปัจจุบัน (ต้องส่ง Bearer Token)
-- `GET /api/users` : เรียกดูรายชื่อผู้ใช้ทั้งหมดในระบบ
+`compose.override.yml` เปลี่ยน frontend ให้ใช้ Vite development server และ bind-mount source ส่วนการรันเฉพาะไฟล์หลักโดยไม่มี override ใช้ `docker compose -f compose.yml up -d --build` ซึ่งสร้าง static frontend และให้ Nginx ให้บริการแทน Vite
 
-### Storage & Dataset Management
-- `POST /api/storage/upload` : อัปโหลดไฟล์ Dataset เข้า MinIO
-- `GET /api/storage/files` : ดึงรายการไฟล์ทั้งหมดใน MinIO ของผู้ใช้งานปัจจุบัน
+ตัวแปรระบบที่ Compose ใช้ควบคุมอยู่ใน `compose.yml` และ environment ของเครื่อง; ห้าม commit credentials จริงลง repository ค่าที่อยู่ใน Compose เป็นค่าเริ่มต้นสำหรับการพัฒนาเท่านั้น
 
-### Stock & Inventory Management
-- `POST /api/stock/upload` : อัปโหลดและตรวจสอบไฟล์ CSV สำหรับจัดการสินค้า (รองรับ In-Memory Bulk Validation เพื่อแก้ปัญหา N+1 Query และเพิ่มประสิทธิภาพการประมวลผล)
-- `GET /api/stock` : ดึงข้อมูลรายการสินค้าคงคลัง (Stock)
-- `GET /api/stock/summary` : เรียกดูข้อมูลสรุปของสินค้าตามช่วงเวลาหรือคลังสินค้า
+## API ที่ใช้งานจาก Dashboard
 
----
+ทุก endpoint ในตารางยกเว้น health check มี prefix `/api`:
 
-## 📌 Notes & Port Assignments
+| Endpoint | หน้าที่ |
+|---|---|
+| `GET /health` | ตรวจสถานะ database, Redis และ MinIO |
+| `GET /stock/summary` | ภาพรวม stock |
+| `GET /stock/history?product=...` | ประวัติ stock สำหรับกราฟ |
+| `GET /forecast/latest?product=...` | forecast ล่าสุดที่บันทึกไว้ |
+| `POST /forecast` | enqueue งาน forecast |
+| `POST /forecast/train` | enqueue งานฝึกโมเดล |
+| `GET /forecast/{job_id}` | ตรวจสถานะ/อ่านผลของงาน |
+| `GET /settings`, `PUT /settings` | อ่าน/บันทึกค่าตั้งค่า |
+| `POST /risk/evaluate` | ประเมินระดับความเสี่ยงจาก stock, forecast และ threshold |
 
-- Frontend (หน้าเว็บหลักของโปรเจกต์): http://localhost:8081
-- **PostgreSQL**: `localhost:5433` (บน Host) / `5432` (ใน Network)
-- **MinIO Web Console**: `http://localhost:9001` (Credentials: admin / password123)
-- **FastAPI Backend**: `http://localhost:8000` (Swagger UI: `http://localhost:8000/docs`)
+มี endpoint stock เพิ่มเติม เช่น `/stock`, `/stock/products`, `/stock/upload` รวมถึง inventory routes แต่บาง endpoint ไม่มีปุ่ม/หน้าจอเรียกใช้ใน Dashboard ปัจจุบัน ดูรายการ routes ที่แน่นอนจาก Swagger UI
 
-- **Grafana (Observability UI)**: `http://localhost:3000` (ไม่ต้องใช้รหัสผ่าน เข้าได้ทันที)
-- **Prometheus (Metrics UI)**: `http://localhost:9090`
-- **Label Studio**: `http://localhost:8080`
-- **MLflow UI**: `http://localhost:5000`
-- **Redis**: `localhost:6379`
-- **Loki & Tempo (APIs)**: `3100` และ `3200` (ใช้ภายใน Network สำหรับส่ง Logs และ Traces)
+## การใส่คำอธิบายใน source
+
+ไฟล์ source, scripts และ configuration ที่รองรับ comment มีคำอธิบายหน้าที่และส่วนสำคัญในรูปแบบที่ภาษานั้นรองรับแล้ว ไฟล์ machine-readable ที่ไม่รองรับ comment (เช่น JSON lockfile และ Grafana dashboard JSON) อธิบายไว้ในเอกสารแทน ไฟล์ dependencies, generated artifacts, local data, caches และ binaries ถูกยกเว้น

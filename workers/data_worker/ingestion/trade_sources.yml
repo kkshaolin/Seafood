@@ -1,5 +1,6 @@
-# แหล่งข้อมูลสถิติการส่งออกกุ้ง/หมึกแช่แข็ง (ไฟล์ CSV/Excel รายเดือน) -> MinIO raw-trade/
-# ทุก source ปิดไว้ (enabled: false) จนกว่าจะใส่ URL จริง -- ดูตัวอย่าง 3 โหมดด้านล่าง
+# ตั้งค่าแหล่งข้อมูลสถิติส่งออกกุ้ง/หมึกแช่แข็ง ซึ่ง trade.py จะแปลงเป็นไฟล์ดิบใน MinIO raw-trade/
+# ปัจจุบันทุก source ปิดอยู่ (enabled: false): data-worker และ cron ยังทำงาน แต่ ingestion จะคืน skipped
+# เปิด source หลังแทน URL/รหัสชุดข้อมูลตัวอย่างด้วยค่าจริง และตรวจสอบรูปแบบ response แล้ว
 #
 #   mode: url_template  URL ไฟล์ตรง ๆ ใส่ {year} {month} {month:02d} ได้ ดึงย้อน months_back เดือน
 #   mode: ckan          ดึงรายการ resource จาก CKAN API (เช่น data.go.th) แล้วโหลดไฟล์ csv/xls/xlsx

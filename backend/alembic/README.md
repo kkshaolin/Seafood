@@ -1,9 +1,10 @@
-# Database Migrations (Alembic)
+# Database migrations
 
-โฟลเดอร์จัดการเวอร์ชันและโครงสร้างของฐานข้อมูล (Database Schema) 
+โฟลเดอร์นี้เก็บ revision history ที่ Alembic ใช้ปรับ schema ฐานข้อมูลตามลำดับ:
 
-การเปลี่ยนโครงสร้างตาราง (Models) จะต้องถูกสร้างเป็นไฟล์ Migration เสมอ เพื่อให้การอัปเดตหรือย้อนกลับ (Rollback) ข้อมูลใน PostgreSQL เป็นไปอย่างปลอดภัย
+- `env.py`: โหลด metadata/models และ URL ฐานข้อมูลเพื่อรัน migration
+- `versions/`: migration scripts ที่สร้าง/เปลี่ยนตาราง
+- `script.py.mako`: template สำหรับ revision ใหม่
+- `alembic.ini` อยู่ที่ `backend/alembic.ini` และกำหนดค่าเริ่มต้นของ Alembic
 
-คำสั่งที่เกี่ยวข้อง:
-- สร้าง Migration: `alembic revision --autogenerate -m "description"`
-- อัปเดตฐานข้อมูล: `alembic upgrade head`
+Compose ปัจจุบันไม่ได้รัน `alembic upgrade head` ตอนเริ่มบริการ; ให้ตรวจสอบ schema/environment และสั่ง migration อย่างชัดเจนก่อน deploy การสร้างตารางช่วงเริ่มระบบใน backend เป็นอีกกลไกหนึ่ง ไม่ได้แทน migration history

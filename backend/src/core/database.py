@@ -1,3 +1,9 @@
+"""Legacy database bootstrap ที่ยังเหลืออยู่เพื่ออ้างอิงแบบเดิม.
+
+ไฟล์นี้ไม่ใช่ entry point ที่ main.py ใช้งานในปัจจุบัน; main.py เรียก db.database เป็น module หลัก
+และ compose.yml ก็ไม่ได้กำหนดให้ use ไฟล์นี้ ดังนั้นจึงถือว่าเป็นรหัสเก่าที่คงอยู่อาจใช้ได้แต่ไม่ใช่ active path.
+"""
+
 """
 Database connection module
 สร้าง engine และ session สำหรับเชื่อมต่อ PostgreSQL

@@ -1,11 +1,14 @@
-﻿import pandas as pd
+"""ฟังก์ชันฝึกและสร้างค่าพยากรณ์ด้วย ARIMA จาก statsmodels"""
+import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
 import warnings
 
 def train_arima(train_df: pd.DataFrame, target_col: str, exog_cols: list, p: int, d: int, q: int):
     """
-    Train ARIMA model using statsmodels.
-    If exog_cols is empty, it falls back to ARIMA.
+    ฝึกโมเดล ARIMA ตามลำดับ (p, d, q) จากคอลัมน์เป้าหมาย
+
+    หากระบุ exogenous columns จะส่งตัวแปรเหล่านั้นเป็น exog; หากไม่ระบุ
+    จะฝึก ARIMA จาก target เพียงชุดเดียว
     """
     y = train_df[target_col]
     exog = train_df[exog_cols] if exog_cols else None
@@ -19,7 +22,9 @@ def train_arima(train_df: pd.DataFrame, target_col: str, exog_cols: list, p: int
 
 def forecast_arima(fitted_model, steps: int, future_exog: pd.DataFrame = None):
     """
-    Forecast using the fitted ARIMA model.
+    พยากรณ์จำนวน steps จากโมเดลที่ฝึกแล้ว และคืนค่ากลางกับช่วงความเชื่อมั่น 95%
+
+    เมื่อโมเดลใช้ตัวแปรภายนอก ให้ส่งค่าของช่วงอนาคตผ่าน future_exog
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

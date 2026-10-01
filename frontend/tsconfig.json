@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    // กำหนดมาตรฐาน JavaScript และ API ของเบราว์เซอร์ที่คอมโพเนนต์ React ใช้งานได้
     "target": "ES2020",
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
@@ -11,7 +12,7 @@
       "@/*": ["src/*"]
     },
 
-    /* Bundler mode */
+    /* ให้ Vite จัดการ module และ asset ส่วน TypeScript ใช้ตรวจชนิดข้อมูลโดยไม่ปล่อยไฟล์ JS */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
@@ -19,7 +20,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Linting */
+    /* เปิดการตรวจชนิดแบบเข้มงวด แต่ยังไม่บังคับลบตัวแปร/พารามิเตอร์ที่ยังไม่ได้ใช้ระหว่างพัฒนา */
     "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,

@@ -1,25 +1,27 @@
-# คำสั่งเริ่มการทำงาน [docker compose up -d] / Build Image ใหม่ [docker compose up -d --build]  
+# เริ่ม stack ในโหมดพัฒนา: docker compose up -d; เพิ่ม --build เมื่อต้องการสร้าง image ใหม่
 # หยุดชั่วคราว [docker compose stop]
 # ปิดระบบและลบ Container ทิ้ง [docker compose down]
 # รีสตาร์ท [docker compose restart]
     
+# นิยามบริการทั้งระบบ; compose.override.yml เพิ่ม Vite และการตรวจจับการเปลี่ยนไฟล์สำหรับนักพัฒนา
 services:
-  redis:                              # ตั้งชื่อ Service
-    image: redis:8.8.0-alpine         # เลือกใช้ Image ของ Redis
-    restart: unless-stopped           # เปิดตัวเองใหม่ตลอดเวลาหากระบบล่ม
+  # Redis เป็นคิวกลางให้ API ส่งงานและให้ ARQ workers รับไปทำภายหลัง
+  redis:
+    image: redis:8.8.0-alpine         # ใช้ Redis รุ่น Alpine ขนาดเล็กเป็น broker ของคิวงาน
+    restart: unless-stopped           # ให้ Docker เริ่ม service ใหม่หาก process หยุดโดยไม่ตั้งใจ
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data              # เชื่อมต่อพื้นที่เก็บข้อมูลจำลอง เพื่อไม่ให้ข้อมูลหายเมื่อคอนเทนเนอร์ถูกปิดหรือลบ
-    command: >                        # บันทึกข้อมูลลงฮาร์ดดิสก์เรื่อย ๆ กันข้อมูลสูญหาย
+      - redis-data:/data              # เก็บข้อมูล Redis ไว้ข้ามการ restart ของ container
+    command: >                        # เปิด append-only log เพื่อเก็บการเปลี่ยนข้อมูลคิวลงดิสก์
       redis-server
       --appendonly yes               
-    healthcheck:                      # ระบบคอยตรวจสอบตัวเอง
+    healthcheck:                      # ให้ Compose รอจน Redis ตอบ PING ก่อนเริ่มบริการที่พึ่งพา
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    logging:                          # ส่วนจัดการ Log ของ Redis
+    logging:                          # จำกัดขนาด/จำนวน log files เพื่อไม่ให้ log ใช้พื้นที่ไม่สิ้นสุด
       driver: "json-file"
       options:
         max-size: "10m"
@@ -27,17 +29,18 @@ services:
     networks:
       - ai-network
 
-  postgres:                           # docker exec -it postgres_db psql -U admin -d my_database
-    image: postgres:15-alpine         # Image ของ PostgreSQL เวอร์ชัน 15
+  # PostgreSQL เก็บข้อมูล stock, settings, forecast และข้อมูลที่ได้จาก ingestion
+  postgres:                           # เข้า shell ได้ด้วย docker compose exec postgres psql -U admin -d my_database
+    image: postgres:15-alpine         # ใช้ PostgreSQL 15 เป็นฐานข้อมูลหลักของระบบ
     restart: unless-stopped
-    environment:                      # ตั้งค่า Username, Password และชื่อ Database เริ่มต้น
+    environment:                      # กำหนดบัญชีและฐานข้อมูลเริ่มต้นสำหรับ local development
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secretpassword}
       - POSTGRES_DB=my_database
     ports:
-      - "5433:5432"                   # พอร์ต PostgreSQL บนโฮสต์ เพื่อหลีกเลี่ยงการชนกับ postgres ท้องถิ่น
+      - "5433:5432"                   # host ใช้ 5433 เพื่อไม่ชน PostgreSQL ที่อาจใช้ 5432 อยู่แล้ว
     volumes:
-      - postgres-data:/var/lib/postgresql/data  # เก็บข้อมูลจำลองไว้เพื่อไม่ให้ข้อมูลหาย     
+      - postgres-data:/var/lib/postgresql/data  # เก็บไฟล์ฐานข้อมูลใน named volume ให้คงอยู่หลังปิด container
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-my_database}"]
       interval: 10s
@@ -51,11 +54,12 @@ services:
     networks:
       - ai-network
 
-  minio:                              
+  # MinIO เก็บไฟล์ผ่าน API ที่เข้ากันได้กับ S3 เช่น dataset และ model artifacts
+  minio:
     image: minio/minio:latest
     ports: 
-      - "9000:9000"       # 9000 ใช้สำหรับเชื่อมต่อ S3 API เพื่อเขียน/อ่านไฟล์
-      - "9001:9001"       # 9001 สำหรับเข้าใช้งานหน้าเว็บจัดการ (Web Console)
+      - "9000:9000"       # พอร์ต 9000 เปิด S3 API ให้ backend/workers อ่านและเขียน object
+      - "9001:9001"       # พอร์ต 9001 เปิดหน้าเว็บ Console สำหรับจัดการ MinIO ด้วยมือ
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: password123
@@ -70,6 +74,7 @@ services:
         max-file: "3"
     networks:
       - ai-network
+  # FastAPI รับ HTTP requests และเปิด health check ให้ host กับบริการใน Compose
   backend:
     build:
       context: ./backend
@@ -100,7 +105,7 @@ services:
         condition: service_started
     networks:
       - ai-network
-    healthcheck:
+    healthcheck:                      # ตรวจ readiness เพื่อป้องกันการเริ่ม service ก่อน dependency พร้อม
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
@@ -111,6 +116,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # รับงาน forecast จาก ARQ แล้วเรียกบริการ inference สำหรับข้อมูลอนุกรมเวลา
   forecasting-worker:
     deploy:
       resources:
@@ -142,6 +148,7 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # ฝึกโมเดลแยกจาก API เพื่อไม่ให้งานคำนวณหนักขัดขวางคำขอจากหน้าเว็บ
   training-worker:
     build:
       context: ./workers
@@ -166,7 +173,8 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  data-worker:                        # ดึงข้อมูลจากภายนอก (ราคาหุ้น/ค่าเงิน, งบการเงิน, สถิติส่งออก) — ดู workers/ingestion/
+  # ดึงข้อมูลตลาด/การเงิน/การซื้อขายตามกำหนด; โค้ดอยู่ใน workers/data_worker/
+  data-worker:
     deploy:
       resources:
         limits:
@@ -194,7 +202,7 @@ services:
       minio:
         condition: service_started
       backend:
-        condition: service_healthy    # backend สร้างตาราง (create_all) ตอนสตาร์ท
+        condition: service_healthy    # backend เตรียมตารางฐานข้อมูลตอนเริ่มก่อนให้ worker ทำงาน
     networks:
       - ai-network
     logging:
@@ -203,6 +211,7 @@ services:
         max-size: "20m"
         max-file: "3"
 
+  # MLflow เก็บ metadata ของการทดลองใน PostgreSQL และ artifacts ใน MinIO
   mlflow:
     build:
       context: .
@@ -227,6 +236,7 @@ services:
     networks:
       - ai-network
 
+  # Prometheus ดึง metrics จาก endpoint ที่ OpenTelemetry Collector เปิดไว้
   prometheus:
     image: prom/prometheus:latest
     restart: unless-stopped
@@ -238,6 +248,7 @@ services:
     networks:
       - ai-network
 
+  # Loki เป็นที่เก็บ log กลางที่ Promtail ส่งข้อมูลเข้ามา
   loki:
     image: grafana/loki:3.0.0
     restart: unless-stopped
@@ -250,6 +261,7 @@ services:
     networks:
       - ai-network
 
+  # Promtail อ่าน log ของ Docker containers แล้วส่งต่อไป Loki
   promtail:
     image: grafana/promtail:3.0.0
     restart: unless-stopped
@@ -260,6 +272,7 @@ services:
     networks:
       - ai-network
 
+  # Tempo เก็บ traces ที่ Collector ส่งมาด้วยโปรโตคอล OTLP
   tempo:
     image: grafana/tempo:latest
     user: "0"
@@ -273,17 +286,19 @@ services:
     networks:
       - ai-network
 
+  # Collector รับ telemetry จากแอปแล้วส่ง traces/metrics ไปยังระบบปลายทาง
   otel-collector:
     image: otel/opentelemetry-collector:0.100.0
     restart: unless-stopped
     ports:
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
+      - "4317:4317" # พอร์ต OTLP แบบ gRPC สำหรับแอปที่ส่ง telemetry
+      - "4318:4318" # พอร์ต OTLP แบบ HTTP ใช้ใน development override
     volumes:
       - ./observability/otel-collector.yml:/etc/otelcol/config.yaml
     networks:
       - ai-network
 
+  # Grafana แสดง metrics/logs/traces โดยตั้ง datasource และ dashboard ไว้ล่วงหน้า
   grafana:
     image: grafana/grafana:11.1.0
     restart: unless-stopped
@@ -299,7 +314,7 @@ services:
     networks:
       - ai-network
 
-
+  # Frontend production ใช้ Nginx; compose.override.yml เปลี่ยนเป็น Vite สำหรับพัฒนา
   frontend:
     build:
       context: ./frontend
@@ -313,7 +328,8 @@ services:
     networks:
       - ai-network
 
-volumes:         # Volumes - พื้นที่เก็บข้อมูลถาวร           # พื้นที่เพื่อให้ Services ด้านบนเรียกใช้ได้
+# Named volumes รักษาข้อมูลไว้เมื่อ containers ถูก restart หรือสร้างใหม่
+volumes:
   minio_data:
   redis-data:
   postgres-data:
@@ -322,6 +338,7 @@ volumes:         # Volumes - พื้นที่เก็บข้อมูล
   tempo_data:
   grafana_data:
 
-networks:         # Networks - เครือข่ายภายใน
+# Network ภายในทำให้ service เรียกหากันด้วยชื่อที่กำหนดใน Compose
+networks:
   ai-network:
     driver: bridge

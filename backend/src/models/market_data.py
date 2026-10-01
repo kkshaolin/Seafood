@@ -1,3 +1,9 @@
+"""Model SQLAlchemy สำหรับข้อมูลตลาดและข้อมูลทางการเงินที่ ingestion worker จัดเก็บ.
+
+โครงสร้างนี้จัดเก็บข้อมูลเชิงประวัติ เช่น ราคาหหุ้น, Financial statement และ metadata ของ ingestion run
+เพื่อใช้สำหรับการวิเคราะห์ระยะยาวและ dashboard analytics.
+"""
+
 """
 ตารางสำหรับข้อมูลที่ Data Worker ดึงมา (ราคาหุ้น/ค่าเงิน, งบการเงิน, ประวัติการรัน)
 Worker เขียนด้วย upsert ตามชื่อคอลัมน์ในไฟล์นี้ (workers/ingestion/db.py) — แก้ schema ที่นี่แล้วออก Alembic migration

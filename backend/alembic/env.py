@@ -1,3 +1,9 @@
+﻿"""Alembic environment bootstrap สำหรับ migration ของ schema หลังจาก backend start.
+
+โค้ดนี้ตั้ง sys.path ให้เห็น backend/src, โหลด settings จาก config.py และ import model ที่ต้องการ
+เพื่อ Alembic autogenerate ทำงานได้แม้จะมี legacy imports เช่น api.auth หรือ models.student ที่ไม่ได้ใช้งานในปัจจุบัน.
+"""
+
 import asyncio
 import os
 import sys
@@ -9,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-# Make sure backend root is on sys.path
+# เพิ่ม backend root ให้ Python สามารถ import โมดูลภายใน backend ได้เมื่อ Alembic เริ่มทำงาน
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
@@ -19,7 +25,9 @@ if src_dir not in sys.path:
 
 from core.config import settings  # noqa: E402
 from db.database import Base, _ensure_async_database_url  # noqa: E402
-# Import all model files so metadata is populated for autogenerate
+# นำเข้า model ทั้งหมดก่อนสร้าง migration แบบอัตโนมัติ เพื่อ Alembic รู้ schema ปัจจุบันของแอป
+# import แบบเก่าของ api.auth และ models.student ถูกคงไว้เพื่อความเข้ากันได้กับ migration ที่สร้างก่อนหน้า
+# อย่างไรก็ตาม เส้นทางการใช้งานจริงในปัจจุบันใช้ models.stock และ models.market_data และไม่พึ่งตาราง auth/student ใน main.py
 from api.auth import model  # noqa: F401, E402
 from models import student  # noqa: F401, E402
 from models import market_data  # noqa: F401, E402
@@ -30,7 +38,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set database URL dynamically from application settings
+# กำหนดค่า DATABASE_URL จากการตั้งค่าแอป เพื่อ migration ใช้ฐานข้อมูลเดียวกับ runtime จริง
 db_url = _ensure_async_database_url(settings.DATABASE_URL)
 config.set_main_option("sqlalchemy.url", db_url)
 

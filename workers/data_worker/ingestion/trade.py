@@ -26,6 +26,7 @@ TIMEOUT = (10, 120)
 
 
 def make_session() -> requests.Session:
+    """สร้าง HTTP session พร้อม User-Agent และ retry สำหรับข้อผิดพลาดชั่วคราว"""
     s = requests.Session()
     s.headers["User-Agent"] = "seafood-data-ingestion/1.0"
     retry = Retry(total=3, backoff_factor=1.5, status_forcelist=(429, 500, 502, 503, 504))
@@ -35,17 +36,20 @@ def make_session() -> requests.Session:
 
 
 def load_sources(path: Optional[str] = None) -> list[dict]:
+    """อ่านรายการแหล่งข้อมูลจาก YAML ที่กำหนด หรือไฟล์เริ่มต้นในแพ็กเกจ"""
     with open(path or get_settings().trade_sources_file, encoding="utf-8") as f:
         return (yaml.safe_load(f) or {}).get("sources", [])
 
 
 def safe_filename(url: str) -> str:
+    """ดึงชื่อไฟล์จาก URL และแทนอักขระที่ไม่ปลอดภัยสำหรับ object key"""
     name = PurePosixPath(unquote(urlparse(url).path)).name or "download"
     # ไม่ใช้ \w เพราะไม่ครอบคลุมสระ/วรรณยุกต์ไทย (จะทำให้ชื่อไฟล์เพี้ยน) — แทนเฉพาะอักขระที่ไม่ปลอดภัย
     return re.sub(r'[\\/:*?"<>|\s]+', "_", name)
 
 
 def looks_like_html(data: bytes) -> bool:
+    """ตรวจ prefix ของ response เพื่อแยกหน้า HTML ที่ส่งกลับมาแทนไฟล์"""
     head = data[:512].lstrip().lower()
     return head.startswith(b"<!doctype html") or head.startswith(b"<html")
 
@@ -62,7 +66,7 @@ def _months_back(n: int, today: Optional[date] = None) -> Iterator[tuple[int, in
 
 
 def iter_files(src: dict, session: requests.Session, months_back: Optional[int] = None) -> Iterator[tuple[str, str]]:
-    """yield (relative_key, url) ของแต่ละ source ตามโหมด"""
+    """สร้างคู่ relative key/URL โดยรองรับ URL template, CKAN และลิงก์จากหน้าเว็บ"""
     mode = src.get("mode")
     if mode == "url_template":
         for y, m in _months_back(months_back or src.get("months_back", 12)):
@@ -96,7 +100,7 @@ def iter_files(src: dict, session: requests.Session, months_back: Optional[int] 
 
 def fetch_and_store(store: RawStore, session: requests.Session, name: str, rel: str, url: str,
                     force: bool = False) -> str:
-    """คืนค่า 'uploaded' | 'unchanged' | 'missing'"""
+    """ดาวน์โหลด ตรวจ response และ hash ก่อนจัดเก็บ; คืน uploaded, unchanged หรือ missing"""
     r = session.get(url, timeout=TIMEOUT)
     if r.status_code == 404:
         return "missing"
@@ -116,6 +120,10 @@ def fetch_and_store(store: RawStore, session: requests.Session, name: str, rel: 
 def ingest_trade(source: Optional[str] = None, months_back: Optional[int] = None, force: bool = False,
                  store: Optional[RawStore] = None, session: Optional[requests.Session] = None,
                  sources: Optional[list[dict]] = None) -> dict:
+    """เลือก source ที่เปิดใช้งาน ดึงไฟล์ บันทึกผลแต่ละไฟล์ และสรุปสถานะรอบงาน
+
+    หากไม่มี source ที่เปิดไว้ จะปิดบันทึกรอบงานเป็น skipped โดยไม่เรียกแหล่งภายนอก
+    """
     sources = sources if sources is not None else load_sources()
     sources = [s for s in sources if s.get("enabled") and (source is None or s["name"] == source)]
     run_id = db.start_run("trade", {"source": source, "months_back": months_back, "force": force})

@@ -1,3 +1,9 @@
+"""Model SQLAlchemy สำหรับข้อมูลสต็อกและผลลัพธ์การพยากรณ์.
+
+ตารางที่นิยามตรงนี้เป็น core schema ที่ใช้งานจริงในระบบ stock + forecast workflow
+และจะถูกสร้างโดย create_database_schema() ใน db/database.py ตอน backend start.
+"""
+
 from datetime import date, datetime
 from typing import Optional
 

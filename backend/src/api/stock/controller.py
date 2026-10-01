@@ -1,3 +1,9 @@
+"""Controller สำหรับจัดการ CSV upload และ query สต็อกสินค้า.
+
+โค้ดนี้แยกการ validate, parse, duplicate check และ bulk insert ออกจาก repository เพื่อให้ logic
+ของ API ชัดเจนและลดความซับซ้อนของ route handler.
+"""
+
 import csv
 import io
 from datetime import datetime, date
