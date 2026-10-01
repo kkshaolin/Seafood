@@ -82,6 +82,33 @@ class StockRepository:
         result = await self.session.execute(stmt)
         return result.first() is not None
 
+    async def get_existing_keys(self, records: List[dict]) -> set:
+        """
+        ดึงข้อมูล key (recorded_at, product, warehouse) ที่มีอยู่แล้วในฐานข้อมูล 
+        เพื่อใช้ตรวจสอบ Duplicate แบบ Bulk ช่วยลดปัญหา N+1 Query
+        """
+        if not records:
+            return set()
+            
+        # สร้างเงื่อนไขจาก records ที่ส่งเข้ามา
+        conditions = []
+        for r in records:
+            conditions.append(
+                and_(
+                    ShrimpStockData.recorded_at == r["recorded_at"],
+                    ShrimpStockData.product == r["product"],
+                    ShrimpStockData.warehouse == r["warehouse"]
+                )
+            )
+            
+        # ใช้ or_ เพื่อรวบรวมเงื่อนไขทั้งหมด (ใช้ or_() ใน SQLAlchemy)
+        from sqlalchemy import or_
+        stmt = select(ShrimpStockData.recorded_at, ShrimpStockData.product, ShrimpStockData.warehouse).where(
+            or_(*conditions)
+        )
+        result = await self.session.execute(stmt)
+        return set(result.all())
+
     async def bulk_insert(self, records: List[ShrimpStockData]):
         self.session.add_all(records)
         await self.session.commit()

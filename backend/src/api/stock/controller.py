@@ -18,89 +18,115 @@ from api.stock.schema import (
 )
 
 
+def _parse_and_validate_row(row: dict, row_index: int) -> dict:
+    """
+    ฟังก์ชันช่วยสำหรับตรวจสอบและแปลงข้อมูลแต่ละแถวใน CSV
+    แยกโค้ดออกมาเพื่อเพิ่มความอ่านง่าย (Readability) และลดความซับซ้อน (Cyclomatic Complexity)
+    """
+    date_str = row.get("date", "").strip()
+    product = row.get("product", "").strip()
+    quantity_str = row.get("quantity", "").strip()
+    unit = row.get("unit", "").strip()
+    warehouse = row.get("warehouse", "").strip() or None
+    
+    # ตรวจสอบค่าว่าง
+    if not date_str:
+        raise HTTPException(status_code=400, detail={"row": row_index, "column": "date", "reason": "Missing value"})
+    if not product:
+        raise HTTPException(status_code=400, detail={"row": row_index, "column": "product", "reason": "Missing value"})
+    if not quantity_str:
+        raise HTTPException(status_code=400, detail={"row": row_index, "column": "quantity", "reason": "Missing value"})
+    if not unit:
+        raise HTTPException(status_code=400, detail={"row": row_index, "column": "unit", "reason": "Missing value"})
+
+    # แปลงชนิดข้อมูล (Type Casting)
+    try:
+        recorded_at = datetime.fromisoformat(date_str)
+    except ValueError:
+        try:
+            recorded_at = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail={"row": row_index, "column": "date", "reason": "Invalid date format, use YYYY-MM-DD"})
+            
+    from datetime import timezone
+    if recorded_at.tzinfo is None:
+        recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+        
+    try:
+        quantity = float(quantity_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail={"row": row_index, "column": "quantity", "reason": "Must be a number"})
+        
+    return {
+        "recorded_at": recorded_at,
+        "product": product,
+        "quantity": quantity,
+        "unit": unit,
+        "warehouse": warehouse,
+        "date_str": date_str # เก็บไว้ใช้สำหรับแสดง error message
+    }
+
+
 async def upload_csv(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_db_session)
 ) -> StockUploadResponse:
+    """
+    อัปโหลดข้อมูล Stock แบบ Bulk จากไฟล์ CSV
+    ถูก Refactor เพื่อลดปัญหา N+1 Query และแยก Logic การตรวจสอบออกมาต่างหาก
+    """
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a CSV")
 
     content = await file.read()
     decoded = content.decode("utf-8")
-    reader = csv.DictReader(io.StringIO(decoded))
+    reader = list(csv.DictReader(io.StringIO(decoded)))
     
-    # Required columns based on spec
+    if not reader:
+        raise HTTPException(status_code=400, detail="CSV is empty")
+        
     required_cols = {"date", "product", "quantity", "unit", "warehouse"}
-    if not reader.fieldnames or not required_cols.issubset(set(reader.fieldnames)):
+    if not set(reader[0].keys()).issuperset(required_cols):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail=f"Missing required columns. Expected at least: {required_cols}"
         )
 
     repo = StockRepository(session)
-    records_to_insert = []
     
-    # Validate and Parse
     try:
-        for row_index, row in enumerate(reader, start=2): # Row 1 is header
-            # Extract and clean
-            date_str = row.get("date", "").strip()
-            product = row.get("product", "").strip()
-            quantity_str = row.get("quantity", "").strip()
-            unit = row.get("unit", "").strip()
-            warehouse = row.get("warehouse", "").strip() or None
+        # 1. Parse and validate all rows first (In-memory validation)
+        parsed_records = []
+        for row_index, row in enumerate(reader, start=2):
+            parsed_records.append(_parse_and_validate_row(row, row_index))
             
-            # Check missing
-            if not date_str:
-                raise HTTPException(status_code=400, detail={"row": row_index, "column": "date", "reason": "Missing value"})
-            if not product:
-                raise HTTPException(status_code=400, detail={"row": row_index, "column": "product", "reason": "Missing value"})
-            if not quantity_str:
-                raise HTTPException(status_code=400, detail={"row": row_index, "column": "quantity", "reason": "Missing value"})
-            if not unit:
-                raise HTTPException(status_code=400, detail={"row": row_index, "column": "unit", "reason": "Missing value"})
-
-            # Validate data types
-            try:
-                # Support ISO format or common formats like YYYY-MM-DD
-                recorded_at = datetime.fromisoformat(date_str)
-            except ValueError:
-                try:
-                    recorded_at = datetime.strptime(date_str, "%Y-%m-%d")
-                except ValueError:
-                    raise HTTPException(status_code=400, detail={"row": row_index, "column": "date", "reason": "Invalid date format, use YYYY-MM-DD"})
-                    
-            from datetime import timezone
-            if recorded_at.tzinfo is None:
-                recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+        # 2. Bulk check for duplicates (Performance Optimization: O(1) query instead of O(N))
+        existing_keys = await repo.get_existing_keys(parsed_records)
+        
+        records_to_insert = []
+        for row_index, parsed in enumerate(parsed_records, start=2):
+            # ตรวจสอบซ้ำกับฐานข้อมูล
+            key = (parsed["recorded_at"], parsed["product"], parsed["warehouse"])
+            if key in existing_keys:
+                raise HTTPException(
+                    status_code=400, 
+                    detail={"row": row_index, "column": "all", "reason": f"Duplicate entry found for {parsed['product']} on {parsed['date_str']} at {parsed['warehouse']}"}
+                )
                 
-            try:
-                quantity = float(quantity_str)
-            except ValueError:
-                raise HTTPException(status_code=400, detail={"row": row_index, "column": "quantity", "reason": "Must be a number"})
-            
-            # Check duplicates in DB
-            is_dup = await repo.check_duplicate(recorded_at, product, warehouse)
-            if is_dup:
-                raise HTTPException(status_code=400, detail={"row": row_index, "column": "all", "reason": f"Duplicate entry found for {product} on {date_str} at {warehouse}"})
-
-            record = ShrimpStockData(
-                recorded_at=recorded_at,
-                product=product,
-                quantity=quantity,
-                unit=unit,
-                warehouse=warehouse,
+            # แปลงเป็น Model ก่อนบันทึก
+            records_to_insert.append(ShrimpStockData(
+                recorded_at=parsed["recorded_at"],
+                product=parsed["product"],
+                quantity=parsed["quantity"],
+                unit=parsed["unit"],
+                warehouse=parsed["warehouse"],
                 source="csv"
-            )
-            records_to_insert.append(record)
-            
-        if not records_to_insert:
-            raise HTTPException(status_code=400, detail="CSV is empty or valid records not found")
-            
+            ))
+
+        # 3. Bulk Insert
         await repo.bulk_insert(records_to_insert)
             
     except HTTPException:
-        # Nested transaction will auto-rollback on exception
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

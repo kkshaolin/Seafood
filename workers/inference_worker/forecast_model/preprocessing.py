@@ -43,9 +43,8 @@ def prepare_time_series(df: pd.DataFrame, target_col: str, date_col: str) -> pd.
     for c in exog_cols:
         monthly_df[c] = monthly_df[c].ffill().bfill().fillna(0.0)
         
-    if len(monthly_df) < 12:
-        # Require at least 12 months for a minimal reliable seasonal/annual check, but let's just say 6
-        raise PreprocessingError("Insufficient data: Need at least 12 months of data for reliable forecasting.")
+    if len(monthly_df) < 2:
+        raise PreprocessingError("Insufficient data: Need at least 2 months of data for basic forecasting.")
         
     return monthly_df
 

@@ -1,0 +1,31 @@
+services:
+  frontend:
+    build:
+      target: builder
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "80"]
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  backend:
+    environment:
+      - WATCHFILES_FORCE_POLLING=true
+
+  forecasting-worker:
+    command: ["watchfiles", "--filter", "python", "python -m arq inference_worker.worker.WorkerSettings", "."]
+    environment:
+      - WATCHFILES_FORCE_POLLING=true
+
+  training-worker:
+    command: ["watchfiles", "--filter", "python", "python -m arq training_worker.worker.WorkerSettings", "."]
+    environment:
+      - WATCHFILES_FORCE_POLLING=true
+
+  data-worker:
+    command: ["watchfiles", "--filter", "python", "python -m arq data_worker.worker.WorkerSettings", "."]
+    environment:
+      - WATCHFILES_FORCE_POLLING=true
+
+  promtail:
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro

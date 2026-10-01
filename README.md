@@ -122,17 +122,25 @@ uv run arq inference_worker.WorkerSettings
 - `POST /api/storage/upload` : อัปโหลดไฟล์ Dataset เข้า MinIO
 - `GET /api/storage/files` : ดึงรายการไฟล์ทั้งหมดใน MinIO ของผู้ใช้งานปัจจุบัน
 
+### Stock & Inventory Management
+- `POST /api/stock/upload` : อัปโหลดและตรวจสอบไฟล์ CSV สำหรับจัดการสินค้า (รองรับ In-Memory Bulk Validation เพื่อแก้ปัญหา N+1 Query และเพิ่มประสิทธิภาพการประมวลผล)
+- `GET /api/stock` : ดึงข้อมูลรายการสินค้าคงคลัง (Stock)
+- `GET /api/stock/summary` : เรียกดูข้อมูลสรุปของสินค้าตามช่วงเวลาหรือคลังสินค้า
+
 ---
 
 ## 📌 Notes & Port Assignments
 
 - Frontend (หน้าเว็บหลักของโปรเจกต์): http://localhost:8081
+- **PostgreSQL**: `localhost:5433` (บน Host) / `5432` (ใน Network)
+- **MinIO Web Console**: `http://localhost:9001` (Credentials: admin / password123)
+
 - **FastAPI Backend**: `http://localhost:8000` (Swagger UI: `http://localhost:8000/docs`)
 - **Grafana (Observability UI)**: `http://localhost:3000` (ไม่ต้องใช้รหัสผ่าน เข้าได้ทันที)
 - **Prometheus (Metrics UI)**: `http://localhost:9090`
 - **Label Studio**: `http://localhost:8080`
-- **MinIO Web Console**: `http://localhost:9001` (Credentials: admin / password123)
+
 - **MLflow UI**: `http://localhost:5000`
-- **PostgreSQL**: `localhost:5433` (บน Host) / `5432` (ใน Network)
+
 - **Redis**: `localhost:6379`
 - **Loki & Tempo (APIs)**: `3100` และ `3200` (ใช้ภายใน Network สำหรับส่ง Logs และ Traces)

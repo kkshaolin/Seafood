@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from db.database import Base
 
 class ShrimpStockData(Base):
-    """ข้อมูล Stock Time Series ของกุ้ง"""
+    """ข้อมูล Stock Time Series"""
     __tablename__ = "shrimp_stocks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -32,12 +32,17 @@ services:
     restart: unless-stopped
     environment:                      # ตั้งค่า Username, Password และชื่อ Database เริ่มต้น
       - POSTGRES_USER=admin
-      - POSTGRES_PASSWORD=secretpassword
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secretpassword}
       - POSTGRES_DB=my_database
     ports:
       - "5433:5432"                   # พอร์ต PostgreSQL บนโฮสต์ เพื่อหลีกเลี่ยงการชนกับ postgres ท้องถิ่น
     volumes:
       - postgres-data:/var/lib/postgresql/data  # เก็บข้อมูลจำลองไว้เพื่อไม่ให้ข้อมูลหาย     
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-my_database}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     logging:                      
       driver: "json-file"
       options:
@@ -78,7 +83,7 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
-      - MINIO_SECRET_KEY=password123
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:8080"]
       - OTEL_SERVICE_NAME=fastapi_backend
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
@@ -90,7 +95,7 @@ services:
       redis:
         condition: service_healthy
       postgres:
-        condition: service_started
+        condition: service_healthy
       minio:
         condition: service_started
     networks:
@@ -107,11 +112,15 @@ services:
         max-file: "3"
 
   forecasting-worker:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     build:
       context: ./backend
       dockerfile: Dockerfile
     image: i_loveseafood-backend:latest
-    command: ["python", "-m", "arq", "forecasting_worker.WorkerSettings"]
+    command: ["python", "-m", "arq", "inference_worker.worker.WorkerSettings"]
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
@@ -133,11 +142,39 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  training-worker:
+    build:
+      context: ./workers
+      dockerfile: Dockerfile
+    command: ["python", "-m", "arq", "training_worker.worker.WorkerSettings"]
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - ./storage:/app/storage
+      - ./workers:/app
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - ai-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   data-worker:                        # ดึงข้อมูลจากภายนอก (ราคาหุ้น/ค่าเงิน, งบการเงิน, สถิติส่งออก) — ดู workers/ingestion/
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     build:
       context: ./workers
       dockerfile: Dockerfile.data
-    command: ["python", "-m", "arq", "data_worker.WorkerSettings"]
+    command: ["python", "-m", "arq", "data_worker.worker.WorkerSettings"]
     restart: unless-stopped
     environment:
       - TZ=Asia/Bangkok               # cron ใน data_worker.py อิงเวลานี้
@@ -145,7 +182,7 @@ services:
       - DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
-      - MINIO_SECRET_KEY=password123
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - DATASETS_BUCKET=datasets
       - STOCK_SYMBOLS=TU,ASIAN,CFRESH,TC,SSF
       - FX_SYMBOLS=USDTHB=X
@@ -175,7 +212,7 @@ services:
       - "5000:5000"
     environment:
       - AWS_ACCESS_KEY_ID=admin
-      - AWS_SECRET_ACCESS_KEY=password123
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
     command: >
       mlflow server
@@ -253,7 +290,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
     volumes:

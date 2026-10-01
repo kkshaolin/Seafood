@@ -1,3 +1,4 @@
+// แสดง UI
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ComposedChart, Area
@@ -8,7 +9,7 @@ import {
 
 import { getStockSummary, getStockHistory, getStockProducts, uploadStockCsv } from '../api/stock';
 import { getLatestCameraLog, getCameraLogsHistory } from '../api/camera';
-import { queueForecast, getForecastJobStatus } from '../api/forecast';
+import { queueForecast, getForecastJobStatus, queueTraining, getLatestForecast } from '../api/forecast';
 import { getSettings, updateSettings } from '../api/settings';
 import { evaluateRisk } from '../api/risk';
 
@@ -16,8 +17,7 @@ export const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   
-  const [product, setProduct] = useState('');
-  const [products, setProducts] = useState<string[]>([]);
+  const PRODUCT_NAME = "Premium_White_Shrimp";
   const [horizon, setHorizon] = useState(3);
   const [cameraId, setCameraId] = useState('cam_main');
   
@@ -44,27 +44,12 @@ export const Dashboard = () => {
         if (loadedSettings.forecast_horizon) setHorizon(parseInt(loadedSettings.forecast_horizon));
       } catch (e) { console.error(e); }
 
-      // Load Products
-      const prods = await getStockProducts();
-      let activeProduct = product;
-      if (prods?.products?.length > 0) {
-        setProducts(prods.products);
-        if (!product) {
-          activeProduct = loadedSettings.default_product && prods.products.includes(loadedSettings.default_product) 
-            ? loadedSettings.default_product 
-            : prods.products[0];
-          setProduct(activeProduct);
-        }
-      }
-
-      if (!activeProduct) return; // Wait for product to be set
-
       // Load Summary
       const sum = await getStockSummary();
       setSummary(sum);
 
       // Load History
-      const hist = await getStockHistory(product);
+      const hist = await getStockHistory(PRODUCT_NAME);
       if (hist?.records) {
         const formatted = hist.records.map((r: any) => ({
           date: new Date(r.recorded_at).toISOString().split('T')[0].substring(0, 7), // YYYY-MM
@@ -80,6 +65,16 @@ export const Dashboard = () => {
         
         const chartData = Array.from(monthlyMap.entries()).map(([date, quantity]) => ({ date, quantity }));
         setHistoryData(chartData);
+      }
+      
+      // Load Latest Forecast from DB
+      try {
+        const latestForecast = await getLatestForecast(PRODUCT_NAME);
+        if (latestForecast && latestForecast.forecast.length > 0) {
+          setForecastData(latestForecast);
+        }
+      } catch (e) {
+        console.log("No previous forecast found in DB.");
       }
 
       // Load Camera
@@ -97,8 +92,8 @@ export const Dashboard = () => {
   };
 
   useEffect(() => {
-    if (product) loadDashboardData();
-  }, [product, cameraId]);
+    loadDashboardData();
+  }, [cameraId]);
 
   // Evaluate Risk when stock data or forecast changes
   useEffect(() => {
@@ -147,7 +142,7 @@ export const Dashboard = () => {
     setForecastData(null);
     try {
       const res = await queueForecast({
-        product,
+        product: PRODUCT_NAME,
         forecast_horizon: horizon,
         p: 1, d: 1, q: 1
       });
@@ -192,8 +187,56 @@ export const Dashboard = () => {
     }
   };
 
+  const runTraining = async () => {
+    setLoading(true);
+    setStatusMsg('Queuing Training Job...');
+    try {
+      const res = await queueTraining({
+        product: PRODUCT_NAME,
+        forecast_horizon: horizon,
+        p: 1, d: 1, q: 1
+      });
+      
+      const jobId = res.job_id;
+      setStatusMsg('Model Training in Progress...');
+      
+      const poll = setInterval(async () => {
+        try {
+          const statusRes = await getForecastJobStatus(jobId);
+          if (statusRes.status === 'completed') {
+            clearInterval(poll);
+            alert("Training completed successfully!");
+            setLoading(false);
+            setStatusMsg('');
+          } else if (statusRes.status === 'failed') {
+            clearInterval(poll);
+            alert("Training failed: " + statusRes.error);
+            setLoading(false);
+            setStatusMsg('');
+          }
+        } catch (pollErr) {
+          console.error(pollErr);
+        }
+      }, 2000);
+      
+      setTimeout(() => {
+        clearInterval(poll);
+        if (loading) {
+          setLoading(false);
+          setStatusMsg('');
+          alert("Training timed out.");
+        }
+      }, 60000);
+
+    } catch (err: any) {
+      alert("Failed to queue training: " + (err.response?.data?.detail || err.message));
+      setLoading(false);
+      setStatusMsg('');
+    }
+  };
+
   // Combine History & Forecast Data for Chart
-  let combinedChartData: any[] = [...historyData];
+  let combinedChartData: any[] = [...historyData].slice(-9);
   if (forecastData && forecastData.forecast) {
     const fData = forecastData.forecast.map((f: any) => ({
       date: f.date.substring(0, 7),
@@ -223,17 +266,7 @@ export const Dashboard = () => {
           </h1>
         </div>
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
-          <div className="space-y-2">
-            <label className="font-semibold text-gray-700">Product</label>
-            <select 
-              value={product} 
-              onChange={(e) => setProduct(e.target.value)}
-              className="w-full p-2 border rounded text-gray-700 bg-white"
-            >
-              {products.length === 0 && <option value={product}>{product}</option>}
-              {products.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
+
           
           <div className="space-y-2">
             <label className="font-semibold text-gray-700">Warehouse</label>
@@ -276,7 +309,14 @@ export const Dashboard = () => {
             disabled={loading}
             className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white p-2 rounded transition font-medium"
           >
-            <PlayCircle className="w-4 h-4" /> Run Forecast
+            <PlayCircle className="w-4 h-4" /> Run Prediction
+          </button>
+          <button 
+            onClick={runTraining}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white p-2 rounded transition font-medium"
+          >
+            <Settings className="w-4 h-4" /> Train Model
           </button>
         </div>
       </aside>
@@ -434,7 +474,6 @@ export const Dashboard = () => {
             
             </div>
           </div>
-        </div>
       </main>
 
       {/* SETTINGS MODAL */}
@@ -502,16 +541,7 @@ export const Dashboard = () => {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase">Default Product</label>
-                <select 
-                  value={settings.default_product || ''} 
-                  onChange={(e) => setSettings({...settings, default_product: e.target.value})}
-                  className="w-full p-2 border border-gray-200 rounded focus:ring-2 focus:ring-blue-100 outline-none"
-                >
-                  {products.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
+
 
               <div className="pt-4 flex gap-3 justify-end">
                 <button type="button" onClick={() => setShowSettings(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
