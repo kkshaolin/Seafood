@@ -10,22 +10,40 @@ services:
   backend:
     environment:
       - WATCHFILES_FORCE_POLLING=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_LOGS_EXPORTER=none
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:8080","http://localhost:8081","*"]
 
   forecasting-worker:
     command: ["watchfiles", "--filter", "python", "python -m arq inference_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_LOGS_EXPORTER=none
 
   training-worker:
     command: ["watchfiles", "--filter", "python", "python -m arq training_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_LOGS_EXPORTER=none
+    volumes:
+      - ./backend/src:/backend/src
 
   data-worker:
     command: ["watchfiles", "--filter", "python", "python -m arq data_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 
   promtail:
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
+
+  grafana:
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./observability/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards

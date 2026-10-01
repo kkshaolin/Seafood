@@ -1,10 +1,10 @@
-import pandas as pd
+﻿import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
 import warnings
 
-def train_arimax(train_df: pd.DataFrame, target_col: str, exog_cols: list, p: int, d: int, q: int):
+def train_arima(train_df: pd.DataFrame, target_col: str, exog_cols: list, p: int, d: int, q: int):
     """
-    Train ARIMAX model using statsmodels.
+    Train ARIMA model using statsmodels.
     If exog_cols is empty, it falls back to ARIMA.
     """
     y = train_df[target_col]
@@ -17,9 +17,9 @@ def train_arimax(train_df: pd.DataFrame, target_col: str, exog_cols: list, p: in
         
     return fitted_model
 
-def forecast_arimax(fitted_model, steps: int, future_exog: pd.DataFrame = None):
+def forecast_arima(fitted_model, steps: int, future_exog: pd.DataFrame = None):
     """
-    Forecast using the fitted ARIMAX model.
+    Forecast using the fitted ARIMA model.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

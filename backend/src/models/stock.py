@@ -51,7 +51,7 @@ class SystemSetting(Base):
 
 
 class ForecastResult(Base):
-    """ผลลัพธ์จากโมเดลพยากรณ์ เช่น ARIMAX"""
+    """ผลลัพธ์จากโมเดลพยากรณ์ เช่น ARIMA"""
     __tablename__ = "forecast_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

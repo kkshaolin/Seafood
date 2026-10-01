@@ -16,3 +16,13 @@ datasources:
     uid: loki
     url: http://loki:3100
     access: proxy
+  - name: PostgreSQL
+    type: postgres
+    uid: postgres
+    url: postgres:5432
+    user: admin
+    secureJsonData:
+      password: secretpassword
+    jsonData:
+      database: my_database
+      sslmode: disable

@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import os
 import sys
 import datetime
@@ -38,7 +38,7 @@ async def seed_data():
             session.add(stock)
             
         await session.commit()
-    print("Seeding complete! You can now run the ARIMAX forecast.")
+    print("Seeding complete! You can now run the ARIMA forecast.")
 
 if __name__ == "__main__":
     asyncio.run(seed_data())

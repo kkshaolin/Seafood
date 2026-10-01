@@ -10,7 +10,7 @@ if backend_src not in sys.path:
     sys.path.insert(0, backend_src)
 
 from db.database import SessionLocal
-from forecast_model.service import ForecastingService
+from inference_worker.forecast_model.service import ForecastingService
 from forecasting.schemas import ForecastRequest
 
 logger = logging.getLogger("forecasting_worker")
@@ -27,7 +27,7 @@ async def shutdown(ctx):
 
 async def run_forecast_task(ctx, req_data: dict) -> dict:
     """
-    ARQ Job Function: ประมวลผล ARIMAX Forecasting
+    ARQ Job Function: ประมวลผล ARIMA Forecasting
     """
     job_id = ctx.get("job_id", "unknown")
     logger.info(f"Starting forecast job {job_id}")

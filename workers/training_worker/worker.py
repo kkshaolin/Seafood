@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import logging
 from arq.connections import RedisSettings
@@ -12,7 +12,7 @@ if inference_src not in sys.path:
     sys.path.insert(0, inference_src)
 
 from db.database import SessionLocal
-from forecast_model.service import ForecastingService
+from inference_worker.forecast_model.service import ForecastingService
 from forecasting.schemas import ForecastRequest
 
 logger = logging.getLogger("training_worker")
@@ -29,7 +29,7 @@ async def shutdown(ctx):
 
 async def run_training_task(ctx, req_data: dict) -> dict:
     """
-    ARQ Job Function: Train ARIMAX Model
+    ARQ Job Function: Train ARIMA Model
     """
     job_id = ctx.get("job_id", "unknown")
     logger.info(f"Starting training job {job_id}")
@@ -47,7 +47,7 @@ async def run_training_task(ctx, req_data: dict) -> dict:
 
 class WorkerSettings:
     functions = [run_training_task]
-    queue_name = "forecasting_queue" # Share the same queue for simplicity or use training_queue
+    queue_name = "training_queue" # Share the same queue for simplicity or use training_queue
     job_timeout = 600 # 10 minutes max
     on_startup = startup
     on_shutdown = shutdown

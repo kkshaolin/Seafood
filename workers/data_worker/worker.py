@@ -1,4 +1,4 @@
-"""Data Worker (ARQ) — ดึงข้อมูลจากภายนอกเข้าระบบ ตามแผน Data Sources & Ingestion Plan
+﻿"""Data Worker (ARQ) — ดึงข้อมูลจากภายนอกเข้าระบบ ตามแผน Data Sources & Ingestion Plan
 
   prices     : ราคาหุ้นอาหารทะเล + ค่าเงิน (รายวัน)      -> MinIO raw-financial + PostgreSQL
   financials : งบการเงิน/กำไรขาดทุน (รายไตรมาส)          -> PostgreSQL + Redis cache
@@ -16,7 +16,7 @@ from typing import Optional
 from arq import cron
 from arq.connections import RedisSettings
 
-from ingestion import financials, stocks, trade
+from data_worker.ingestion import financials, stocks, trade
 
 logging.basicConfig(
     level=logging.INFO,

@@ -134,13 +134,11 @@ uv run arq inference_worker.WorkerSettings
 - Frontend (หน้าเว็บหลักของโปรเจกต์): http://localhost:8081
 - **PostgreSQL**: `localhost:5433` (บน Host) / `5432` (ใน Network)
 - **MinIO Web Console**: `http://localhost:9001` (Credentials: admin / password123)
-
 - **FastAPI Backend**: `http://localhost:8000` (Swagger UI: `http://localhost:8000/docs`)
+
 - **Grafana (Observability UI)**: `http://localhost:3000` (ไม่ต้องใช้รหัสผ่าน เข้าได้ทันที)
 - **Prometheus (Metrics UI)**: `http://localhost:9090`
 - **Label Studio**: `http://localhost:8080`
-
 - **MLflow UI**: `http://localhost:5000`
-
 - **Redis**: `localhost:6379`
 - **Loki & Tempo (APIs)**: `3100` และ `3200` (ใช้ภายใน Network สำหรับส่ง Logs และ Traces)

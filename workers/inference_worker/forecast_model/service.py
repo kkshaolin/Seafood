@@ -1,4 +1,4 @@
-import pandas as pd
+﻿import pandas as pd
 from datetime import date
 import os
 from typing import List, Optional
@@ -8,9 +8,9 @@ from statsmodels.tsa.arima.model import ARIMAResults
 
 from models.stock import ShrimpStockData, CameraLog, ForecastResult
 from forecasting.schemas import ForecastRequest, ForecastResponse, ForecastDataPoint, ForecastMetrics
-from forecast_model.preprocessing import prepare_time_series, chronological_split, PreprocessingError
-from forecast_model.arimax import train_arimax, forecast_arimax
-from forecast_model.metrics import calculate_mae, calculate_rmse, calculate_mape
+from inference_worker.forecast_model.preprocessing import prepare_time_series, chronological_split, PreprocessingError
+from inference_worker.forecast_model.arima import train_arima, forecast_arima
+from inference_worker.forecast_model.metrics import calculate_mae, calculate_rmse, calculate_mape
 
 class ForecastingService:
     def __init__(self, session: AsyncSession):
@@ -99,9 +99,9 @@ class ForecastingService:
             # Quick train/test for metrics
             try:
                 train_df, test_df = chronological_split(monthly_df, train_ratio=0.8)
-                model = train_arimax(train_df, 'quantity', exog_cols, req.p, req.d, req.q)
+                model = train_arima(train_df, 'quantity', exog_cols, req.p, req.d, req.q)
                 future_exog = test_df[exog_cols] if exog_cols else None
-                test_forecast, _ = forecast_arimax(model, steps=len(test_df), future_exog=future_exog)
+                test_forecast, _ = forecast_arima(model, steps=len(test_df), future_exog=future_exog)
                 
                 y_true = test_df['quantity'].values
                 y_pred = test_forecast.values
@@ -111,7 +111,7 @@ class ForecastingService:
             except:
                 pass
                 
-            full_model = train_arimax(monthly_df, 'quantity', exog_cols, req.p, req.d, req.q)
+            full_model = train_arima(monthly_df, 'quantity', exog_cols, req.p, req.d, req.q)
             model_uri = "trained_from_scratch"
             
         # 4. Forecast Future (3 months or req.forecast_horizon)
@@ -122,7 +122,7 @@ class ForecastingService:
         else:
             future_exog_full = None
             
-        future_forecast, conf_int = forecast_arimax(full_model, steps=req.forecast_horizon, future_exog=future_exog_full)
+        future_forecast, conf_int = forecast_arima(full_model, steps=req.forecast_horizon, future_exog=future_exog_full)
         
         last_date = monthly_df.index[-1]
         future_dates = pd.date_range(start=last_date, periods=req.forecast_horizon + 1, freq='MS')[1:]
@@ -136,7 +136,7 @@ class ForecastingService:
                 predicted_value=float(pred),
                 lower_bound=float(lower),
                 upper_bound=float(upper),
-                model_name="ARIMAX_Inference",
+                model_name="ARIMA_Inference",
                 model_version=model_uri
             )
             self.session.add(fr)
@@ -152,7 +152,7 @@ class ForecastingService:
         metrics = ForecastMetrics(mae=mae, rmse=rmse, mape=mape)
         return ForecastResponse(
             product=req.product,
-            model_name="ARIMAX_Inference",
+            model_name="ARIMA_Inference",
             metrics=metrics,
             forecast=api_results,
             model_uri=model_uri
@@ -180,9 +180,9 @@ class ForecastingService:
         mae, rmse, mape = 0.0, 0.0, 0.0
         try:
             train_df, test_df = chronological_split(monthly_df, train_ratio=0.8)
-            model = train_arimax(train_df, 'quantity', exog_cols, req.p, req.d, req.q)
+            model = train_arima(train_df, 'quantity', exog_cols, req.p, req.d, req.q)
             future_exog = test_df[exog_cols] if exog_cols else None
-            test_forecast, _ = forecast_arimax(model, steps=len(test_df), future_exog=future_exog)
+            test_forecast, _ = forecast_arima(model, steps=len(test_df), future_exog=future_exog)
             
             y_true = test_df['quantity'].values
             y_pred = test_forecast.values
@@ -193,7 +193,7 @@ class ForecastingService:
             print(f"Metrics calc failed during training: {e}")
             
         # Train full model
-        full_model = train_arimax(monthly_df, 'quantity', exog_cols, req.p, req.d, req.q)
+        full_model = train_arima(monthly_df, 'quantity', exog_cols, req.p, req.d, req.q)
         
         workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         model_filename = f"arima_premium_shrimp.pkl" if req.product == "Premium_White_Shrimp" else f"arima_{req.product}.pkl"
@@ -204,7 +204,7 @@ class ForecastingService:
         
         return ForecastResponse(
             product=req.product,
-            model_name="ARIMAX",
+            model_name="ARIMA",
             metrics=ForecastMetrics(mae=mae, rmse=rmse, mape=mape),
             forecast=[],
             model_uri=f"local://{model_path}"

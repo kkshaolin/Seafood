@@ -29,9 +29,11 @@ async def get_latest_forecast(
         if not records:
             raise HTTPException(status_code=404, detail="No forecast found for this product")
             
-        # Group by the latest created_at timestamp roughly (or just take the most recent batch)
+        # Group by the latest created_at timestamp using a 60-second window
+        from datetime import timedelta
         latest_created_at = records[0].created_at
-        latest_records = [r for r in records if r.created_at == latest_created_at]
+        cutoff = latest_created_at - timedelta(seconds=60)
+        latest_records = [r for r in records if r.created_at >= cutoff]
         
         # Sort chronologically
         latest_records.sort(key=lambda x: x.forecast_date)
@@ -58,7 +60,7 @@ async def get_latest_forecast(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("", response_model=ForecastJobResponse, status_code=status.HTTP_202_ACCEPTED)
-async def queue_arimax_forecast(
+async def queue_arima_forecast(
     req: ForecastRequest,
     redis=Depends(get_redis_pool)
 ):
@@ -76,7 +78,7 @@ async def queue_arimax_forecast(
         raise HTTPException(status_code=500, detail=f"Failed to queue forecast job: {str(e)}")
 
 @router.post("/train", response_model=ForecastJobResponse, status_code=status.HTTP_202_ACCEPTED)
-async def queue_arimax_training(
+async def queue_arima_training(
     req: ForecastRequest,
     redis=Depends(get_redis_pool)
 ):
@@ -86,7 +88,7 @@ async def queue_arimax_training(
             "run_training_task",
             req.model_dump(),
             _job_id=job_id,
-            _queue_name="forecasting_queue"
+            _queue_name="training_queue"
         )
         return ForecastJobResponse(job_id=job_id, status="queued")
     except Exception as e:
@@ -101,6 +103,10 @@ async def get_forecast_job_status(
         job = Job(job_id, redis, _queue_name="forecasting_queue")
         job_status = await job.status()
         
+        if job_status == JobStatus.not_found:
+            job = Job(job_id, redis, _queue_name="training_queue")
+            job_status = await job.status()
+            
         if job_status == JobStatus.not_found:
             raise HTTPException(status_code=404, detail="Job not found")
             

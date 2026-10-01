@@ -1,42 +1,47 @@
-// แสดง UI
-import React, { useState, useEffect, useRef } from 'react';
+// React ใช้สร้างหน้าจอและจัดการ state, effect และการอ้างอิง element ของ DOM
+import React, { useState, useEffect } from 'react';
+// ส่วนประกอบกราฟสำหรับแสดงข้อมูลสต็อกจริงและผลพยากรณ์ในแกนเวลาเดียวกัน
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ComposedChart, Area
 } from 'recharts';
+// ไอคอนที่ใช้ประกอบปุ่ม หัวข้อ และการ์ดสรุปในหน้า Dashboard
 import { 
-  Activity, Box, Camera, AlertTriangle, TrendingUp, Settings, UploadCloud, PlayCircle, RefreshCw
+  Activity, Box, Camera, AlertTriangle, TrendingUp, Settings, PlayCircle, RefreshCw
 } from 'lucide-react';
 
-import { getStockSummary, getStockHistory, getStockProducts, uploadStockCsv } from '../api/stock';
+// ฟังก์ชันเรียก API แยกตามความรับผิดชอบ: สต็อก, กล้อง, พยากรณ์, ตั้งค่า และประเมินความเสี่ยง
+import { getStockSummary, getStockHistory, getStockProducts } from '../api/stock';
 import { getLatestCameraLog, getCameraLogsHistory } from '../api/camera';
 import { queueForecast, getForecastJobStatus, queueTraining, getLatestForecast } from '../api/forecast';
 import { getSettings, updateSettings } from '../api/settings';
 import { evaluateRisk } from '../api/risk';
 
 export const Dashboard = () => {
+  // ใช้ควบคุมสถานะกำลังทำงานและข้อความที่แสดงใน loading overlay
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   
+  // กำหนดสินค้าเริ่มต้น รวมถึงช่วงเวลาพยากรณ์และกล้องที่เลือก
   const PRODUCT_NAME = "Premium_White_Shrimp";
   const [horizon, setHorizon] = useState(3);
   const [cameraId, setCameraId] = useState('cam_main');
   
+  // เก็บข้อมูลจาก API เพื่อให้ส่วนแสดงผลอัปเดตตามข้อมูลล่าสุด
   const [summary, setSummary] = useState<any>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [forecastData, setForecastData] = useState<any>(null);
   const [cameraLog, setCameraLog] = useState<any>(null);
   const [cameraHistory, setCameraHistory] = useState<any[]>([]);
 
-  // Settings & Risk
+  // เก็บค่าตั้งค่าระบบ, สถานะเปิด/ปิดหน้าต่างตั้งค่า และผลประเมินความเสี่ยง
   const [settings, setSettings] = useState<any>({});
   const [showSettings, setShowSettings] = useState(false);
   const [riskData, setRiskData] = useState<any>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
+  // โหลดข้อมูลทั้งหมดที่หน้า Dashboard ต้องใช้จาก API
   const loadDashboardData = async () => {
     try {
-      // Load Settings
+      // โหลดค่าตั้งค่าก่อน เพื่อใช้ค่า forecast horizon ปัจจุบันกับหน้าจอ
       let loadedSettings = settings;
       try {
         loadedSettings = await getSettings();
@@ -44,19 +49,19 @@ export const Dashboard = () => {
         if (loadedSettings.forecast_horizon) setHorizon(parseInt(loadedSettings.forecast_horizon));
       } catch (e) { console.error(e); }
 
-      // Load Summary
+      // โหลดภาพรวมสต็อก แล้วเก็บไว้ใน state สำหรับการแสดงผล
       const sum = await getStockSummary();
       setSummary(sum);
 
-      // Load History
+      // โหลดประวัติของสินค้า และจัดรูปวันที่/ปริมาณให้อยู่ในรูปแบบที่กราฟใช้ได้
       const hist = await getStockHistory(PRODUCT_NAME);
-      if (hist?.records) {
-        const formatted = hist.records.map((r: any) => ({
+      if (hist?.data) {
+        const formatted = hist.data.map((r: any) => ({
           date: new Date(r.recorded_at).toISOString().split('T')[0].substring(0, 7), // YYYY-MM
           quantity: r.quantity
         }));
         
-        // Aggregate by month for chart
+        // รวมปริมาณที่มีวันที่อยู่ในเดือนเดียวกัน เพื่อให้กราฟสรุปเป็นรายเดือน
         const monthlyMap = new Map();
         formatted.forEach((r: any) => {
           if (!monthlyMap.has(r.date)) monthlyMap.set(r.date, 0);
@@ -67,7 +72,7 @@ export const Dashboard = () => {
         setHistoryData(chartData);
       }
       
-      // Load Latest Forecast from DB
+      // เรียกผลพยากรณ์ล่าสุดที่บันทึกไว้ เพื่อแสดงผลเดิมทันทีโดยไม่ต้องรันโมเดลใหม่
       try {
         const latestForecast = await getLatestForecast(PRODUCT_NAME);
         if (latestForecast && latestForecast.forecast.length > 0) {
@@ -77,7 +82,7 @@ export const Dashboard = () => {
         console.log("No previous forecast found in DB.");
       }
 
-      // Load Camera
+      // โหลดภาพ/บันทึกล่าสุดและประวัติของกล้องที่เลือก; ข้อมูลกล้องอาจยังไม่มีได้
       try {
         const cam = await getLatestCameraLog(cameraId);
         setCameraLog(cam);
@@ -91,16 +96,19 @@ export const Dashboard = () => {
     }
   };
 
+  // โหลดชุดข้อมูลครั้งแรก และโหลดข้อมูลกล้องใหม่เมื่อผู้ใช้เปลี่ยนแหล่งกล้อง
   useEffect(() => {
     loadDashboardData();
   }, [cameraId]);
 
-  // Evaluate Risk when stock data or forecast changes
+  // คำนวณความเสี่ยงใหม่เมื่อประวัติสต็อก ผลพยากรณ์ หรือค่าตั้งค่าที่เกี่ยวข้องเปลี่ยน
   useEffect(() => {
     const checkRisk = async () => {
+      // ใช้ปริมาณล่าสุดในประวัติเทียบกับค่าพยากรณ์งวดถัดไป
       const currentStock = historyData.length > 0 ? historyData[historyData.length - 1].quantity : 0;
       const nextForecast = forecastData?.forecast?.[0]?.predicted_value;
       
+      // ประเมินได้เมื่อมีข้อมูลสต็อก/พยากรณ์และผู้ใช้กำหนดเกณฑ์สต็อกต่ำแล้ว
       if (currentStock !== undefined && nextForecast !== undefined && settings.low_stock_threshold) {
         try {
           const r = await evaluateRisk({
@@ -118,27 +126,11 @@ export const Dashboard = () => {
     checkRisk();
   }, [historyData, forecastData, settings]);
 
-  const handleUploadCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setLoading(true);
-      setStatusMsg('Uploading CSV...');
-      try {
-        await uploadStockCsv(e.target.files[0]);
-        alert("CSV Uploaded successfully!");
-        loadDashboardData();
-      } catch (err: any) {
-        alert("Failed to upload: " + err.message);
-      } finally {
-        setLoading(false);
-        setStatusMsg('');
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    }
-  };
-
+  // ขอให้ backend สร้างงานพยากรณ์ แล้วตรวจสอบสถานะงานจนเสร็จ ล้มเหลว หรือหมดเวลา
   const runForecast = async () => {
     setLoading(true);
     setStatusMsg('Queuing Forecast Job...');
+    // ล้างผลเก่าเพื่อไม่ให้ผู้ใช้เข้าใจผิดว่าเป็นผลจากคำขอครั้งใหม่
     setForecastData(null);
     try {
       const res = await queueForecast({
@@ -150,7 +142,7 @@ export const Dashboard = () => {
       const jobId = res.job_id;
       setStatusMsg('Model Training in Progress...');
       
-      // Poll
+      // ตรวจสถานะงานเป็นระยะ เพราะ backend ประมวลผลแบบ asynchronous
       const poll = setInterval(async () => {
         try {
           const statusRes = await getForecastJobStatus(jobId);
@@ -170,7 +162,7 @@ export const Dashboard = () => {
         }
       }, 2000);
       
-      // Timeout after 60s
+      // หยุดติดตามหลัง 60 วินาที เพื่อไม่ให้มีการ polling ค้างไม่สิ้นสุด
       setTimeout(() => {
         clearInterval(poll);
         if (loading) {
@@ -187,6 +179,7 @@ export const Dashboard = () => {
     }
   };
 
+  // ขอให้ backend ฝึกโมเดล โดยติดตามสถานะงานและแจ้งผลเช่นเดียวกับงานพยากรณ์
   const runTraining = async () => {
     setLoading(true);
     setStatusMsg('Queuing Training Job...');
@@ -200,6 +193,7 @@ export const Dashboard = () => {
       const jobId = res.job_id;
       setStatusMsg('Model Training in Progress...');
       
+      // งานฝึกโมเดลทำงานเบื้องหลัง จึงตรวจสอบสถานะทุก 2 วินาที
       const poll = setInterval(async () => {
         try {
           const statusRes = await getForecastJobStatus(jobId);
@@ -219,6 +213,7 @@ export const Dashboard = () => {
         }
       }, 2000);
       
+      // ป้องกันการรอผลจากงานฝึกโมเดลนานเกินกำหนด
       setTimeout(() => {
         clearInterval(poll);
         if (loading) {
@@ -235,30 +230,47 @@ export const Dashboard = () => {
     }
   };
 
-  // Combine History & Forecast Data for Chart
-  let combinedChartData: any[] = [...historyData].slice(-9);
-  if (forecastData && forecastData.forecast) {
-    const fData = forecastData.forecast.map((f: any) => ({
+  // รวมประวัติ 9 เดือนล่าสุดกับค่าพยากรณ์ เพื่อใช้เป็นชุดข้อมูลเดียวของกราฟ
+  let combinedChartData: any[] = JSON.parse(JSON.stringify([...historyData].slice(-9)));
+  if (forecastData && forecastData.forecast && forecastData.forecast.length > 0) {
+    if (combinedChartData.length > 0) {
+      const lastIndex = combinedChartData.length - 1;
+      // กำหนดจุดเริ่มต้นของเส้นพยากรณ์ให้ต่อเนื่องจากค่าจริงเดือนล่าสุด
+      combinedChartData[lastIndex].forecast = combinedChartData[lastIndex].quantity;
+      combinedChartData[lastIndex].lower = combinedChartData[lastIndex].quantity;
+      combinedChartData[lastIndex].upper = combinedChartData[lastIndex].quantity;
+    }
+
+    // แปลงรายการ forecast ให้ใช้ชื่อ field และรูปแบบวันที่เดียวกับข้อมูลประวัติ
+    let fData = forecastData.forecast.map((f: any) => ({
       date: f.date.substring(0, 7),
       forecast: f.predicted_value,
       lower: f.lower_bound,
       upper: f.upper_bound
     }));
+
+    // ถ้าจุดพยากรณ์แรกอยู่ในเดือนเดียวกับข้อมูลจริงล่าสุด ให้รวมเป็นจุดเดียวบนกราฟ
+    if (combinedChartData.length > 0 && fData.length > 0 && combinedChartData[combinedChartData.length - 1].date === fData[0].date) {
+      combinedChartData[combinedChartData.length - 1] = { ...combinedChartData[combinedChartData.length - 1], ...fData[0] };
+      fData.shift();
+    }
+
     combinedChartData = [...combinedChartData, ...fData];
   }
 
-  // Calculate Average from History
+  // คำนวณค่าเฉลี่ยของปริมาณตามข้อมูลรายเดือนที่แสดงในประวัติ
   const avgStock = historyData.length > 0 
     ? (historyData.reduce((acc, curr) => acc + curr.quantity, 0) / historyData.length).toFixed(0) 
     : 0;
 
+  // เตรียมค่าที่การ์ดสรุปใช้: สต็อกล่าสุด, ค่าพยากรณ์งวดแรก และสถานะตามเกณฑ์ที่กำหนด
   const currentStock = historyData.length > 0 ? historyData[historyData.length - 1].quantity : 0;
   const nextForecast = forecastData?.forecast?.[0]?.predicted_value?.toFixed(0) || '-';
   const isRisk = nextForecast !== '-' && parseInt(nextForecast) > 1500;
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-sm">
-      {/* SIDEBAR */}
+      {/* แถบด้านข้าง: ชื่อระบบ, ตัวเลือกคลัง/กล้อง และปุ่มนำเข้าข้อมูลกับสั่งงานโมเดล */}
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
         <div className="p-4 border-b border-gray-200">
           <h1 className="text-lg font-bold text-blue-600 flex items-center gap-2">
@@ -291,19 +303,6 @@ export const Dashboard = () => {
         </div>
         
         <div className="p-4 border-t border-gray-200 space-y-3">
-          <input 
-            type="file" 
-            accept=".csv" 
-            className="hidden" 
-            ref={fileInputRef} 
-            onChange={handleUploadCsv} 
-          />
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 p-2 rounded transition font-medium"
-          >
-            <UploadCloud className="w-4 h-4" /> Upload CSV
-          </button>
           <button 
             onClick={runForecast}
             disabled={loading}
@@ -321,9 +320,9 @@ export const Dashboard = () => {
         </div>
       </aside>
 
-      {/* MAIN CONTENT */}
+      {/* พื้นที่เนื้อหาหลัก แบ่งเป็นหัวหน้าจอและเนื้อหาที่เลื่อนดูได้ */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
-        {/* HEADER */}
+        {/* หัวหน้าจอ: รีเฟรชข้อมูล เปิดหน้าตั้งค่า และแสดงสถานะระบบ */}
         <header className="bg-white border-b border-gray-200 p-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-4">
             <h2 className="text-xl font-semibold text-gray-800">Dashboard Overview</h2>
@@ -343,19 +342,19 @@ export const Dashboard = () => {
           </div>
         </header>
 
-        {/* SCROLLABLE DASHBOARD */}
+        {/* เนื้อหา Dashboard แบบเลื่อนได้; overlay จะแสดงระหว่างอัปโหลดหรือรอโมเดล */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 relative">
           {loading && (
             <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-20 flex items-center justify-center rounded-xl">
               <div className="flex flex-col items-center gap-3 bg-white p-6 rounded-xl shadow-xl border border-gray-100">
                 <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                 <p className="font-semibold text-blue-700 text-lg">{statusMsg}</p>
-                <p className="text-xs text-gray-500">Please wait, ARIMAX is fitting the model...</p>
+                <p className="text-xs text-gray-500">Please wait, ARIMA is fitting the model...</p>
               </div>
             </div>
           )}
 
-          {/* SECTION 1: Summary Cards */}
+          {/* การ์ดสรุป: ปริมาณปัจจุบัน ค่าเฉลี่ย ค่าพยากรณ์ถัดไป และผลประเมินความเสี่ยง */}
           <div className="grid grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
               <div className="text-gray-500 mb-1 flex items-center justify-between">
@@ -413,12 +412,12 @@ export const Dashboard = () => {
           </div>
 
           <div className="grid grid-cols-3 gap-6">
-            {/* LEFT COLUMN (Charts) */}
+            {/* คอลัมน์กราฟและข้อมูลโมเดล */}
             <div className="col-span-2 space-y-6">
-              {/* SECTION 2 & 3: Combined Chart for History + Forecast */}
+              {/* กราฟแสดงประวัติจริงและค่าพยากรณ์พร้อมขอบเขตค่าต่ำ/สูง */}
               <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4" /> Stock History & ARIMAX Forecast
+                  <TrendingUp className="w-4 h-4" /> Stock History & ARIMA Forecast
                 </h3>
                 <div className="h-80 w-full">
                   {combinedChartData.length > 0 ? (
@@ -437,13 +436,13 @@ export const Dashboard = () => {
                     </ResponsiveContainer>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                      No historical data available. Upload CSV first.
+                      No historical data available.
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* SECTION 6: Forecast Information */}
+              {/* รายละเอียดโมเดลและตัวชี้วัดจะแสดงเมื่อมีผลพยากรณ์แล้วเท่านั้น */}
               {forecastData && (
                 <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
                   <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
@@ -476,7 +475,7 @@ export const Dashboard = () => {
           </div>
       </main>
 
-      {/* SETTINGS MODAL */}
+      {/* หน้าต่างตั้งค่า: เปิดเมื่อผู้ใช้กด Settings และปิดหลังบันทึกหรือยกเลิก */}
       {showSettings && (
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
@@ -487,6 +486,7 @@ export const Dashboard = () => {
               <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
             
+            {/* ป้องกันการ submit แบบ reload หน้า แล้วบันทึกค่าตั้งค่าผ่าน API */}
             <form onSubmit={async (e) => {
               e.preventDefault();
               setLoading(true);
@@ -506,6 +506,7 @@ export const Dashboard = () => {
               }
             }} className="p-6 space-y-4">
               
+              {/* เลือกความเข้มงวดของการประเมินความเสี่ยง */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-gray-600 uppercase">Risk Preference</label>
                 <select 
@@ -519,6 +520,7 @@ export const Dashboard = () => {
                 </select>
               </div>
 
+              {/* กำหนดระดับสต็อกที่ใช้เป็นเกณฑ์แจ้งเตือนความเสี่ยง */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-gray-600 uppercase">Low Stock Threshold (kg)</label>
                 <input 
@@ -530,6 +532,7 @@ export const Dashboard = () => {
                 />
               </div>
 
+              {/* กำหนดจำนวนช่วงเวลาล่วงหน้าที่ต้องการให้โมเดลพยากรณ์ */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-gray-600 uppercase">Default Forecast Horizon</label>
                 <input 
