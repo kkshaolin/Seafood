@@ -498,10 +498,9 @@ export const Dashboard = () => {
                 <div className="flex-1 bg-black rounded-lg overflow-hidden relative min-h-[250px] flex items-center justify-center border border-gray-800">
                   {!isLiveCamera ? (
                     // โหมดจำลองใช้รูปใน storage ไม่ใช่ภาพสด; ไฟล์นี้อาจไม่มีใน checkout ใหม่
-                    <img 
-                      src="/storage/data/ex.jpg" 
-                      alt="Mock Camera Feed" 
-                      className="w-full h-full object-cover opacity-90"
+                    <img  src="/ex.jpg" 
+                          alt="Mock Camera Feed" 
+                          className="w-full h-full object-cover opacity-90"
                     />
                   ) : (
                     // โหมดกล้องจริงยังเป็น placeholder; ยังไม่มี stream source หรือ UI เปิดโหมดนี้

@@ -39,7 +39,44 @@ class ForecastJobResponse(BaseModel):
     job_id: str
     status: str
 
+class TrainingJobResult(BaseModel):
+    """ผลลัพธ์จาก training job (ARIMA หรือ YOLO) ที่ worker คืนมา"""
+    model_config = ConfigDict(extra="allow")  # รับ field เพิ่มเติมโดยไม่ error
+    status: str
+    model_type: Optional[str] = None
+    job_id: Optional[str] = None
+    product: Optional[str] = None
+    dataset_name: Optional[str] = None
+    model_uri: Optional[str] = None
+    metrics: Optional[Dict] = None
+    error: Optional[str] = None
+
+
 class ForecastJobStatusResponse(BaseModel):
     status: str
-    result: Optional[ForecastResponse] = None
+    result: Optional[TrainingJobResult] = None
     error: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# YOLO Training Schemas
+# ---------------------------------------------------------------------------
+
+class YoloTrainRequest(BaseModel):
+    """คำขอฝึกโมเดล YOLO ที่ส่งไปยัง training_queue"""
+    dataset_name: str = "shrimp_v1"
+    """ชื่อ dataset ใน MinIO: bucket=datasets, key=yolo/<dataset_name>/<dataset_name>.zip"""
+    class_names: Optional[List[str]] = None
+    """รายชื่อ class เช่น ["shrimp"]; ถ้า null จะใช้ default ["shrimp"]"""
+    epochs: int = 10
+    imgsz: int = 640
+    batch: int = 8
+    patience: int = 5
+    """จำนวน epoch ที่ยอมให้ val loss ไม่ดีขึ้นก่อน early stop"""
+
+
+class TrainJobResponse(BaseModel):
+    """Response หลังจาก enqueue training job"""
+    job_id: str
+    status: str
+    model_type: str

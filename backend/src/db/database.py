@@ -1,4 +1,4 @@
-﻿"""Database session factory และ schema bootstrap สำหรับ SQLAlchemy Async.
+"""Database session factory และ schema bootstrap สำหรับ SQLAlchemy Async.
 
 นี่เป็นชั้นข้อมูลที่ main.py ใช้งานจริงสำหรับสร้าง session และสร้างตารางตอน startup;
 การ import แบบ legacy ที่อ้างถึง api.auth / models.student เป็นรหัสเก่าที่ไม่ใช้งานในโครงสร้างปัจจุบัน.
@@ -34,10 +34,7 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
 
 async def create_database_schema() -> None:
     # โหลด model ทั้งหมดก่อนสร้าง metadata เพื่อ SQLAlchemy รู้ว่าตารางใดบ้างจะถูกสร้าง
-    # import เก่าของ auth/student ถูกคงไว้เพื่อความเข้ากันได้กับ migration รุ่นเก่า; เส้นทางการใช้งานปัจจุบันใช้ model ของ stock และ market-data อย่างชัดเจน
-    from api.auth import model  # noqa: F401
-    from models import student  # noqa: F401
-    from models import market_data  # noqa: F401
+    # เส้นทางการใช้งานปัจจุบันใช้ model ของ stock อย่างชัดเจน
     from models import stock  # noqa: F401
 
     async with engine.begin() as connection:

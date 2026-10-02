@@ -13,7 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from core.config import settings
-from forecasting.schemas import ForecastRequest, ForecastJobResponse, ForecastJobStatusResponse, ForecastResponse, ForecastDataPoint, ForecastMetrics
+from forecasting.schemas import (
+    ForecastRequest, ForecastJobResponse, ForecastJobStatusResponse,
+    ForecastResponse, ForecastDataPoint, ForecastMetrics,
+    YoloTrainRequest, TrainJobResponse,
+)
 from db.database import get_db_session
 from models.stock import ForecastResult
 
@@ -83,22 +87,71 @@ async def queue_arima_forecast(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to queue forecast job: {str(e)}")
 
-@router.post("/train", response_model=ForecastJobResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/train", response_model=TrainJobResponse, status_code=status.HTTP_202_ACCEPTED,
+             summary="เทรน ARIMA จาก PostgreSQL และบันทึกโมเดลขึ้น MinIO")
 async def queue_arima_training(
     req: ForecastRequest,
     redis=Depends(get_redis_pool)
 ):
+    """Enqueue ARIMA training job เข้า training_queue
+
+    Worker จะดึงข้อมูลสต็อกจาก PostgreSQL (ไม่ใช่ CSV) และ camera_logs
+    เพื่อใช้เป็น exogenous variable แล้วบันทึกโมเดล .pkl ขึ้น MinIO
+    """
     try:
         job_id = str(uuid.uuid4())
+        payload = req.model_dump()
+        payload["model_type"] = "arima"   # บอก worker ว่าเป็น ARIMA
         await redis.enqueue_job(
             "run_training_task",
-            req.model_dump(),
+            payload,
             _job_id=job_id,
             _queue_name="training_queue"
         )
-        return ForecastJobResponse(job_id=job_id, status="queued")
+        return TrainJobResponse(job_id=job_id, status="queued", model_type="arima")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to queue training job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue ARIMA training job: {str(e)}")
+
+
+@router.post("/train/yolo", response_model=TrainJobResponse, status_code=status.HTTP_202_ACCEPTED,
+             summary="เทรน YOLO จาก Dataset ใน MinIO และบันทึกโมเดลขึ้น MinIO")
+async def queue_yolo_training(
+    req: YoloTrainRequest,
+    redis=Depends(get_redis_pool)
+):
+    """Enqueue YOLO training job เข้า training_queue
+
+    Worker จะดาวน์โหลด Dataset ZIP จาก MinIO bucket "datasets"
+    ที่ key yolo/<dataset_name>/<dataset_name>.zip แล้วเทรน YOLO11n
+    และอัปโหลด best.pt + metrics.json ขึ้น MinIO bucket "models"
+
+    **ตัวอย่าง Request Body:**
+    ```json
+    {
+      "dataset_name": "shrimp_v1",
+      "class_names": ["shrimp"],
+      "epochs": 20,
+      "imgsz": 640,
+      "batch": 8,
+      "patience": 5
+    }
+    ```
+    """
+    try:
+        job_id = str(uuid.uuid4())
+        payload = req.model_dump()
+        payload["model_type"] = "yolo"    # บอก worker ว่าเป็น YOLO
+        await redis.enqueue_job(
+            "run_training_task",
+            payload,
+            _job_id=job_id,
+            _queue_name="training_queue"
+        )
+        return TrainJobResponse(job_id=job_id, status="queued", model_type="yolo")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to queue YOLO training job: {str(e)}")
+
+
 
 @router.get("/{job_id}", response_model=ForecastJobStatusResponse)
 async def get_forecast_job_status(
