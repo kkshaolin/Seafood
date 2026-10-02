@@ -11,4 +11,4 @@
 - `grafana/dashboards.yml` และ `grafana/dashboards/dashboards.yml`: บอก Grafana ให้อ่าน dashboard definitions จากไฟล์
 - `grafana/dashboards/*.json`: นิยามแผง log และ database; JSON ไม่รองรับคอมเมนต์ จึงอธิบายหน้าที่ไว้ในเอกสารนี้
 
-บริการ observability เริ่มจาก `compose.yml`; การ mount dashboard เพิ่มเติมตั้งใน `compose.override.yml` ค่ารหัสผ่านใน datasource เป็นค่าเริ่มต้นสำหรับพัฒนาในเครื่อง ควรเปลี่ยนก่อนนำไปใช้กับระบบอื่น
+บริการ observability เริ่มจาก `compose.yml`; Grafana โหลด PostgreSQL datasource และ dashboard จาก provisioning ที่ mount ไว้ใน base compose โดยใช้รหัสผ่านเดียวกับ PostgreSQL ผ่าน `POSTGRES_PASSWORD`. ชุดข้อมูล inventory ถูก seed ลง PostgreSQL ก่อน API/workers เริ่มทำงาน จึงดูได้ใน dashboard `Database Explorer`. ค่าเริ่มต้นมีไว้สำหรับพัฒนาในเครื่อง ควรเปลี่ยนก่อนนำไปใช้กับระบบอื่น

@@ -1,50 +1,14 @@
-"""Utility สำหรับสร้าง mock stock data ชั่วคราวเพื่อทดสอบ forecasting.
-
-สคริปต์นี้ไม่ได้ถูกเรียกจาก compose.yml แต่มีประโยชน์เมื่อต้องสร้าง sample records ในฐานข้อมูล
-ก่อนทำการทดสอบหรือเชื่อมต่อ frontend เช่นเดียวกับการ seed mock สำหรับ dashboard.
-"""
+"""Compatibility command for importing the inventory CSV into PostgreSQL."""
 
 import asyncio
-import os
 import sys
-import datetime
-import random
-import logging
+from pathlib import Path
 
-# Ensure backend/src is in python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+workers_dir = Path(__file__).resolve().parents[2] / "workers"
+sys.path.insert(0, str(workers_dir))
 
-from db.database import SessionLocal
-from models.stock import ShrimpStockData
+from seed_inventory import main
 
-async def seed_data():
-    product = "Premium_White_Shrimp"
-    print(f"Seeding mock data for {product}...")
-    async with SessionLocal() as session:
-        # Clear existing data for this product
-        # Note: We won't clear to keep it simple, just add 60 days up to today
-        
-        today = datetime.datetime.now(datetime.timezone.utc)
-        inventory = 1000.0
-        
-        for i in range(60, 0, -1):
-            date = today - datetime.timedelta(days=i)
-            # Add some random walk
-            change = random.uniform(-100, 120)
-            inventory = max(100.0, inventory + change)
-            
-            stock = ShrimpStockData(
-                recorded_at=date,
-                product=product,
-                quantity=round(inventory, 2),
-                unit="kg",
-                warehouse="Main_Warehouse",
-                source="mock_seed"
-            )
-            session.add(stock)
-            
-        await session.commit()
-    print("Seeding complete! You can now run the ARIMA forecast.")
 
 if __name__ == "__main__":
-    asyncio.run(seed_data())
+    asyncio.run(main())

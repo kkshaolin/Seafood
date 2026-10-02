@@ -54,6 +54,25 @@ services:
     networks:
       - ai-network
 
+  # โหลดชุดข้อมูล inventory ลง PostgreSQL ก่อน API และ workers เริ่มทำงาน
+  inventory-seed:
+    image: i_loveseafood-backend
+    command: ["python", "/workers/seed_inventory.py"]
+    restart: "no"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
+      - STORAGE_ROOT=/app/storage
+      - BACKEND_SRC=/app/src
+    volumes:
+      - ./workers:/workers:ro
+      - ./backend/src:/app/src:ro
+      - ./storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ai-network
+
   # MinIO เก็บไฟล์ผ่าน API ที่เข้ากันได้กับ S3 เช่น dataset และ model artifacts
   minio:
     image: minio/minio:latest
@@ -83,9 +102,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
+      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
       - REDIS_URL=redis://redis:6379
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - STORAGE_ROOT=/app/storage
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
@@ -101,6 +121,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      inventory-seed:
+        condition: service_completed_successfully
       minio:
         condition: service_started
     networks:
@@ -130,16 +152,28 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
+      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - STORAGE_ROOT=/app/storage
     volumes:
       - ./storage:/app/storage
       - ./workers:/app
       - ./backend/src:/backend/src
     depends_on:
-      - redis
-      - postgres
-      - mlflow
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      inventory-seed:
+        condition: service_completed_successfully
+      mlflow:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py", "inference_worker.worker.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     networks:
       - ai-network
     logging:
@@ -162,8 +196,9 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
+      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - STORAGE_ROOT=/app/storage
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
@@ -173,9 +208,20 @@ services:
       - ./workers:/app
       - ./backend/src:/backend/src
     depends_on:
-      - redis
-      - postgres
-      - minio
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      inventory-seed:
+        condition: service_completed_successfully
+      minio:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py", "training_worker.worker.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     networks:
       - ai-network
     logging:
@@ -200,7 +246,7 @@ services:
     environment:
       - TZ=Asia/Bangkok               # cron ใน data_worker.py อิงเวลานี้
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql://admin:secretpassword@postgres:5432/my_database
+      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
@@ -216,6 +262,12 @@ services:
         condition: service_started
       backend:
         condition: service_healthy    # backend เตรียมตารางฐานข้อมูลตอนเริ่มก่อนให้ worker ทำงาน
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py", "data_worker.worker.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     networks:
       - ai-network
     logging:
@@ -321,8 +373,11 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secretpassword}
     volumes:
       - ./observability/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./observability/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     networks:
       - ai-network

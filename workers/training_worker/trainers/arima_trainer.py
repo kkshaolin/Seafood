@@ -1,7 +1,7 @@
 """ARIMA Trainer: ดึงข้อมูลจาก PostgreSQL → เทรน → อัปโหลดโมเดล + metrics ขึ้น MinIO
 
 Flow:
-    1. ดึง shrimp_stocks รายเดือนจาก PostgreSQL (แทน CSV เดิม)
+    1. ดึง inventory_summaries จาก PostgreSQL (แทน CSV เดิม)
     2. ดึง camera_logs (detected_count) เพื่อใช้เป็น exogenous variable
     3. เทรน ARIMA ด้วย chronological split → คำนวณ MAE/RMSE/MAPE
     4. เทรนโมเดลเต็มชุด → serialize เป็น .pkl
@@ -13,16 +13,15 @@ from __future__ import annotations
 import io
 import logging
 import os
-import pickle
-import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import pandas as pd
 from minio import Minio
-from minio.error import S3Error
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import select, text
+from sqlalchemy import text
+
+from inventory_data import get_inventory_csv_path, get_local_arima_model_path, load_inventory_time_series
 
 logger = logging.getLogger("training_worker.arima")
 
@@ -69,30 +68,24 @@ def _upload_bytes(client: Minio, bucket: str, key: str, data: bytes,
 
 def _make_session_factory(database_url: str):
     """สร้าง async session factory จาก DATABASE_URL."""
-    if not database_url.startswith("postgresql+asyncpg://"):
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif database_url.startswith("postgresql://"):
         database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif not database_url.startswith("postgresql+asyncpg://"):
+        raise ValueError("DATABASE_URL must use a PostgreSQL URL scheme")
     engine = create_async_engine(database_url, pool_pre_ping=True)
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def _fetch_shrimp_stocks(session: AsyncSession, product: str,
-                                warehouse: Optional[str] = None) -> pd.DataFrame:
-    """ดึงข้อมูลสต็อกจาก PostgreSQL กรองตาม product/warehouse เรียงตามเวลา."""
+async def _fetch_inventory_summaries(session: AsyncSession) -> pd.DataFrame:
+    """ดึงข้อมูล inventory ทั้งหมดจาก PostgreSQL เรียงตามเวลา."""
     stmt = text("""
-        SELECT recorded_at, quantity
-        FROM shrimp_stocks
-        WHERE product = :product
-        { and_warehouse }
-        ORDER BY recorded_at ASC
-    """.replace(
-        "{ and_warehouse }",
-        "AND warehouse = :warehouse" if warehouse else ""
-    ))
-    params = {"product": product}
-    if warehouse:
-        params["warehouse"] = warehouse
-
-    result = await session.execute(stmt, params)
+        SELECT date as recorded_at, total_boxes as quantity
+        FROM inventory_summaries
+        ORDER BY date ASC
+    """)
+    result = await session.execute(stmt)
     rows = result.fetchall()
     if not rows:
         return pd.DataFrame(columns=["recorded_at", "quantity"])
@@ -126,28 +119,10 @@ async def _fetch_camera_exog(session: AsyncSession) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def _load_csv_fallback(product: str) -> pd.DataFrame:
-    """
-    อ่านข้อมูล Time Series จาก CSV fallback ที่ mount ไว้ที่ /app/storage/data/csv_file/
-    ใช้ mapping เดียวกับ ForecastingService เดิม
-    """
-    csv_path = "/app/storage/data/csv_file/shrimp_stock_monthly_4y.csv"
-    if not os.path.exists(csv_path):
-        logger.warning("CSV fallback not found at %s", csv_path)
-        return pd.DataFrame(columns=["recorded_at", "quantity"])
-
-    df = pd.read_csv(csv_path)
-    # mapping เดิม: Premium_White_Shrimp → tiger_shrimp_size_L
-    target_product = "tiger_shrimp_size_L" if product == "Premium_White_Shrimp" else product
-    filtered = df[df["product"] == target_product].copy()
-
-    if filtered.empty and not df.empty:
-        first_product = df["product"].iloc[0]
-        filtered = df[df["product"] == first_product].copy()
-        logger.warning("Product '%s' not in CSV, using first product '%s'", target_product, first_product)
-
-    filtered.rename(columns={"date": "recorded_at"}, inplace=True)
-    filtered["recorded_at"] = pd.to_datetime(filtered["recorded_at"])
-    return filtered[["recorded_at", "quantity"]]
+    """อ่าน inventory CSV ตาม path เดียวกับขั้นตอน import และ prediction."""
+    csv_path = get_inventory_csv_path()
+    logger.info("Reading inventory CSV fallback from %s for product '%s'", csv_path, product)
+    return load_inventory_time_series(csv_path)
 
 
 async def train_arima_model(
@@ -171,6 +146,10 @@ async def train_arima_model(
     7. คืนสรุปผล
     """
     MIN_MONTHS_REQUIRED = 12  # ARIMA ต้องการข้อมูลอย่างน้อย 12 เดือนสำหรับ split ที่ดี
+    if warehouse:
+        raise ValueError(
+            "Inventory summary data has no warehouse column; warehouse filtering is unsupported"
+        )
 
     # ใช้ path เดิมที่มีอยู่แล้วในระบบ inference_worker
     import sys
@@ -190,7 +169,7 @@ async def train_arima_model(
 
     # 1. Fetch data from PostgreSQL
     async with session_factory() as session:
-        stock_df = await _fetch_shrimp_stocks(session, product, warehouse)
+        stock_df = await _fetch_inventory_summaries(session)
         camera_df = await _fetch_camera_exog(session)
 
     logger.info("DB returned %d stock rows for '%s'", len(stock_df), product)
@@ -278,6 +257,10 @@ async def train_arima_model(
     minio_client = _get_minio_client()
     model_bucket = "models"
     model_key = f"arima/{product}/{job_id}/model.pkl"
+    local_model_path = get_local_arima_model_path(product)
+    local_model_path.parent.mkdir(parents=True, exist_ok=True)
+    local_model_path.write_bytes(model_bytes)
+    logger.info("Saved trained ARIMA model to shared storage: %s", local_model_path)
     _upload_bytes(minio_client, model_bucket, model_key, model_bytes, "application/octet-stream")
 
     # ยังอัปโหลด metrics JSON ด้วย
@@ -285,10 +268,12 @@ async def train_arima_model(
     metrics = {
         "mae": mae, "rmse": rmse, "mape": mape_val,
         "p": p, "d": d, "q": q,
+        "forecast_horizon": forecast_horizon,
         "n_train_months": len(monthly_df),
         "product": product,
         "data_source": "csv_fallback" if use_csv_fallback else "postgresql",
-        "trained_at": datetime.utcnow().isoformat(),
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "local_model_path": str(local_model_path),
     }
     metrics_bytes = json.dumps(metrics, indent=2).encode()
     metrics_key = f"arima/{product}/{job_id}/metrics.json"
@@ -305,4 +290,3 @@ async def train_arima_model(
         "model_uri": minio_uri,
         "metrics": metrics,
     }
-

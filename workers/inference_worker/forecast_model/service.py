@@ -4,19 +4,22 @@
 จากนั้นบันทึกผลพยากรณ์ลงฐานข้อมูลหรือบันทึกโมเดลที่ฝึกแล้วลง storage/models
 บริการนี้ถูกเรียกโดย forecasting worker และ training worker ที่ Compose เปิดใช้งาน
 """
-import pandas as pd
-from datetime import date
+import logging
 import os
-from typing import List, Optional
+
+import pandas as pd
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
 from statsmodels.tsa.arima.model import ARIMAResults
 
-from models.stock import ShrimpStockData, CameraLog, ForecastResult
+from models.stock import InventorySummary, ForecastResult
 from forecasting.schemas import ForecastRequest, ForecastResponse, ForecastDataPoint, ForecastMetrics
 from inference_worker.forecast_model.preprocessing import prepare_time_series, chronological_split, PreprocessingError
 from inference_worker.forecast_model.arima import train_arima, forecast_arima
 from inference_worker.forecast_model.metrics import calculate_mae, calculate_rmse, calculate_mape
+from inventory_data import get_local_arima_model_path, load_inventory_time_series
+
+logger = logging.getLogger("forecasting_worker.service")
 
 class ForecastingService:
     """รวมขั้นตอนอ่านข้อมูล เตรียมโมเดล และบันทึกผลผ่าน SQLAlchemy session"""
@@ -25,35 +28,27 @@ class ForecastingService:
         """รับ session แบบ async ที่ worker เปิดไว้สำหรับหนึ่งงาน"""
         self.session = session
 
-    async def get_shrimp_stock_data(self, product: str, warehouse: Optional[str] = None) -> pd.DataFrame:
-        """อ่านข้อมูลสต็อกรายเดือนจาก CSV กรองสินค้า/คลัง และคืนคอลัมน์วันกับปริมาณ"""
-        workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        csv_path = os.path.join(workspace_root, "storage", "data", "csv_file", "shrimp_stock_monthly_4y.csv")
-        
-        if not os.path.exists(csv_path):
-            print(f"Warning: CSV not found at {csv_path}")
-            return pd.DataFrame(columns=['recorded_at', 'quantity'])
-            
-        df = pd.read_csv(csv_path)
-        
-        # CSV ตัวอย่างมีสินค้าหลักเพียงชนิดเดียว จึง map คำขอ Premium ไปยังชื่อในไฟล์
-        target_product = "tiger_shrimp_size_L" if product == "Premium_White_Shrimp" else product
-        filtered = df[df['product'] == target_product].copy()
-        
-        if filtered.empty and not df.empty:
-            # หากชื่อสินค้าไม่ตรงกับไฟล์ ให้ใช้ชนิดแรกในไฟล์เพื่อคงการประมวลผลตัวอย่าง
-            first_product = df['product'].iloc[0]
-            filtered = df[df['product'] == first_product].copy()
-            
-        if warehouse:
-            filtered = filtered[filtered['warehouse'] == warehouse]
-            
-        # Rename 'date' -> 'recorded_at' to match existing logic
-        filtered.rename(columns={'date': 'recorded_at'}, inplace=True)
-        # Convert date to datetime
-        filtered['recorded_at'] = pd.to_datetime(filtered['recorded_at'])
-        
-        return filtered[['recorded_at', 'quantity']]
+    async def get_inventory_data(self) -> pd.DataFrame:
+        """Read inventory quantities from PostgreSQL, falling back to the configured CSV."""
+        stmt = (
+            select(InventorySummary.date, InventorySummary.total_boxes)
+            .order_by(InventorySummary.date, InventorySummary.time)
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        if rows:
+            return pd.DataFrame(
+                {
+                    "recorded_at": [row.date for row in rows],
+                    "quantity": [float(row.total_boxes) for row in rows],
+                }
+            )
+
+        logger.warning("No inventory rows in PostgreSQL; using the inventory CSV fallback")
+        try:
+            return load_inventory_time_series()
+        except (FileNotFoundError, ValueError) as exc:
+            raise PreprocessingError(f"No usable inventory data is available: {exc}") from exc
 
     async def get_detected_stock_data(self) -> pd.DataFrame:
         """คืน DataFrame ว่างเป็น placeholder จนกว่าจะมีแหล่งข้อมูล CameraLog"""
@@ -65,8 +60,13 @@ class ForecastingService:
         รวมข้อมูลกล้องกับสต็อกเมื่อมี, เตรียมรายเดือน, คำนวณตัวชี้วัดจาก holdout
         เมื่อฝึกใหม่, พยากรณ์ตาม horizon และบันทึกจุดพยากรณ์ลง ForecastResult
         """
+        if req.warehouse:
+            raise PreprocessingError(
+                "Inventory summary data has no warehouse column; warehouse filtering is unsupported"
+            )
+
         # 1. Load Real-time Data from DB
-        stock_df = await self.get_shrimp_stock_data(req.product, req.warehouse)
+        stock_df = await self.get_inventory_data()
         if stock_df.empty:
             raise PreprocessingError(f"Insufficient data: No stock records found for product '{req.product}'")
             
@@ -85,12 +85,7 @@ class ForecastingService:
         
         # 2. Try to Load Pre-trained Model (.pkl)
         # Using a fixed path for simplicity or dynamic based on product
-        workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        model_filename = f"arima_premium_shrimp.pkl" # fallback default
-        if req.product == "Premium_White_Shrimp":
-            model_filename = "arima_premium_shrimp.pkl"
-            
-        model_path = os.path.join(workspace_root, "storage", "models", "time_serie", model_filename)
+        model_path = get_local_arima_model_path(req.product)
         
         full_model = None
         model_uri = f"local://{model_path}"
@@ -105,9 +100,9 @@ class ForecastingService:
                 # Note: statsmodels apply creates a new results object with the same parameters
                 # Exogenous variables not handled in this basic apply for simplicity
                 full_model = loaded_model.apply(monthly_df['quantity'])
-                print(f"Loaded and applied model from {model_path}")
+                logger.info("Loaded and applied model from %s", model_path)
             except Exception as e:
-                print(f"Failed to load/apply model: {e}")
+                logger.warning("Failed to load/apply model from %s: %s", model_path, e)
                 
         # 3. Fallback: Retrain if load failed
         if full_model is None:
@@ -123,8 +118,8 @@ class ForecastingService:
                 mae = calculate_mae(y_true, y_pred)
                 rmse = calculate_rmse(y_true, y_pred)
                 mape = calculate_mape(y_true, y_pred)
-            except:
-                pass
+            except Exception as exc:
+                logger.warning("Forecast metric evaluation failed: %s", exc)
                 
             full_model = train_arima(monthly_df, 'quantity', exog_cols, req.p, req.d, req.q)
             model_uri = "trained_from_scratch"
@@ -179,7 +174,12 @@ class ForecastingService:
         คำนวณ MAE/RMSE/MAPE จากการแบ่งข้อมูลตามเวลาเมื่อทำได้ ก่อนฝึกโมเดลเต็มชุด
         และบันทึกผลลัพธ์ไว้ใต้ storage/models/time_serie
         """
-        stock_df = await self.get_shrimp_stock_data(req.product, req.warehouse)
+        if req.warehouse:
+            raise PreprocessingError(
+                "Inventory summary data has no warehouse column; warehouse filtering is unsupported"
+            )
+
+        stock_df = await self.get_inventory_data()
         if stock_df.empty:
             raise PreprocessingError(f"Insufficient data for training: No stock records found for product '{req.product}'")
             
@@ -215,11 +215,8 @@ class ForecastingService:
         # Train full model
         full_model = train_arima(monthly_df, 'quantity', exog_cols, req.p, req.d, req.q)
         
-        workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        model_filename = f"arima_premium_shrimp.pkl" if req.product == "Premium_White_Shrimp" else f"arima_{req.product}.pkl"
-        model_path = os.path.join(workspace_root, "storage", "models", "time_serie", model_filename)
-        
-        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        model_path = get_local_arima_model_path(req.product)
+        model_path.parent.mkdir(parents=True, exist_ok=True)
         full_model.save(model_path)
         
         return ForecastResponse(

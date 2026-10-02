@@ -41,6 +41,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY data_worker/ ./data_worker/
 COPY inference_worker/ ./inference_worker/
 COPY training_worker/ ./training_worker/
+COPY inventory_data.py healthcheck.py seed_inventory.py ./
 
 # สร้างโฟลเดอร์ที่จำเป็นและตั้งสิทธิ์ให้ appuser
 RUN mkdir -p /app/storage/data \
@@ -55,7 +56,7 @@ USER appuser
 
 # ตรวจว่ามี process ของ ARQ ทำงานอยู่ในคอนเทนเนอร์
 HEALTHCHECK --interval=60s --timeout=30s --start-period=10s --retries=3 \
-    CMD pgrep -f arq || exit 1
+    CMD ["python", "/app/healthcheck.py", "training_worker.worker.WorkerSettings"]
 
 # คำสั่งเริ่มต้น (สามารถถูก Override จาก compose.yml ได้)
 CMD ["python", "-m", "arq", "inference_worker.worker.WorkerSettings"]

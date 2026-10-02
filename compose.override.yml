@@ -48,10 +48,7 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
 
   grafana:
-    # เปิด anonymous access เฉพาะ local development และ mount dashboards สำหรับทดสอบ
+    # เปิด anonymous access เฉพาะ local development; provisioning อยู่ใน compose.yml
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_DISABLE_LOGIN_FORM=true
-    volumes:
-      - ./observability/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
-      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards

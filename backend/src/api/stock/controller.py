@@ -1,187 +1,197 @@
-"""Controller สำหรับจัดการ CSV upload และ query สต็อกสินค้า.
-
-โค้ดนี้แยกการ validate, parse, duplicate check และ bulk insert ออกจาก repository เพื่อให้ logic
-ของ API ชัดเจนและลดความซับซ้อนของ route handler.
-"""
+"""CSV upload and query endpoints for inventory summaries."""
 
 import csv
 import io
-from datetime import datetime, date
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+import math
+from datetime import date, datetime, time
+from typing import Optional
+
+from fastapi import Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.database import get_db_session
-from models.stock import ShrimpStockData
 from api.stock.repository import StockRepository
 from api.stock.schema import (
-    StockUploadResponse,
+    ProductListResponse,
+    StockHistoryDataPoint,
+    StockHistoryResponse,
     StockRecordResponse,
     StockSummaryResponse,
-    StockHistoryResponse,
-    StockHistoryDataPoint,
-    ProductListResponse
+    StockUploadResponse,
 )
+from db.database import get_db_session
+from models.stock import InventorySummary
+
+INTEGER_COLUMNS = (
+    "total_boxes",
+    "occupied_slots",
+    "empty_slots",
+    "boxes_level1",
+    "boxes_level2",
+    "boxes_level3",
+    "inbound_boxes",
+    "outbound_boxes",
+)
+FLOAT_COLUMNS = (
+    "total_weight_kg",
+    "occupancy_pct",
+    "cold_room_temp_c",
+    "humidity_pct",
+)
+REQUIRED_COLUMNS = {
+    "split",
+    "date",
+    "time",
+    *INTEGER_COLUMNS,
+    *FLOAT_COLUMNS,
+}
 
 
-def _parse_and_validate_row(row: dict, row_index: int) -> dict:
-    """
-    ฟังก์ชันช่วยสำหรับตรวจสอบและแปลงข้อมูลแต่ละแถวใน CSV
-    แยกโค้ดออกมาเพื่อเพิ่มความอ่านง่าย (Readability) และลดความซับซ้อน (Cyclomatic Complexity)
-    """
-    date_str = row.get("date", "").strip()
-    product = row.get("product", "").strip()
-    quantity_str = row.get("quantity", "").strip()
-    unit = row.get("unit", "").strip()
-    warehouse = row.get("warehouse", "").strip() or None
-    
-    # ตรวจสอบค่าว่าง
-    if not date_str:
-        raise HTTPException(status_code=400, detail={"row": row_index, "column": "date", "reason": "Missing value"})
-    if not product:
-        raise HTTPException(status_code=400, detail={"row": row_index, "column": "product", "reason": "Missing value"})
-    if not quantity_str:
-        raise HTTPException(status_code=400, detail={"row": row_index, "column": "quantity", "reason": "Missing value"})
-    if not unit:
-        raise HTTPException(status_code=400, detail={"row": row_index, "column": "unit", "reason": "Missing value"})
-
-    # แปลงชนิดข้อมูล (Type Casting)
+def _parse_inventory_row(row: dict[str, str], row_index: int) -> InventorySummary:
+    image_path = (row.get("image_path") or row.get("image") or "").strip()
+    split = (row.get("split") or "").strip()
     try:
-        recorded_at = datetime.fromisoformat(date_str)
-    except ValueError:
-        try:
-            recorded_at = datetime.strptime(date_str, "%Y-%m-%d")
-        except ValueError:
-            raise HTTPException(status_code=400, detail={"row": row_index, "column": "date", "reason": "Invalid date format, use YYYY-MM-DD"})
-            
-    from datetime import timezone
-    if recorded_at.tzinfo is None:
-        recorded_at = recorded_at.replace(tzinfo=timezone.utc)
-        
-    try:
-        quantity = float(quantity_str)
-    except ValueError:
-        raise HTTPException(status_code=400, detail={"row": row_index, "column": "quantity", "reason": "Must be a number"})
-        
-    return {
-        "recorded_at": recorded_at,
-        "product": product,
-        "quantity": quantity,
-        "unit": unit,
-        "warehouse": warehouse,
-        "date_str": date_str # เก็บไว้ใช้สำหรับแสดง error message
-    }
+        recorded_date = date.fromisoformat(row["date"].strip())
+        recorded_time = time.fromisoformat(row["time"].strip()).isoformat(timespec="minutes")
+        integer_values = {name: int(row[name]) for name in INTEGER_COLUMNS}
+        float_values = {name: float(row[name]) for name in FLOAT_COLUMNS}
+        if not all(math.isfinite(value) for value in float_values.values()):
+            raise ValueError("numeric fields must be finite")
+        if not image_path or not split:
+            raise ValueError("image and split must not be empty")
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"row": row_index, "reason": str(exc)},
+        ) from exc
+
+    return InventorySummary(
+        image_path=image_path,
+        split=split,
+        date=recorded_date,
+        time=recorded_time,
+        **integer_values,
+        **float_values,
+    )
+
+
+def _as_stock_record(record: InventorySummary) -> StockRecordResponse:
+    return StockRecordResponse(
+        id=record.id,
+        recorded_at=datetime.combine(record.date, time.fromisoformat(record.time)),
+        product="Inventory",
+        quantity=record.total_boxes,
+        unit="boxes",
+        warehouse=record.split,
+        source="inventory_csv",
+        created_at=record.created_at,
+    )
 
 
 async def upload_csv(
     file: UploadFile = File(...),
-    session: AsyncSession = Depends(get_db_session)
+    session: AsyncSession = Depends(get_db_session),
 ) -> StockUploadResponse:
-    """
-    อัปโหลดข้อมูล Stock แบบ Bulk จากไฟล์ CSV
-    ถูก Refactor เพื่อลดปัญหา N+1 Query และแยก Logic การตรวจสอบออกมาต่างหาก
-    """
-    if not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a CSV")
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a CSV")
 
-    content = await file.read()
-    decoded = content.decode("utf-8")
-    reader = list(csv.DictReader(io.StringIO(decoded)))
-    
-    if not reader:
-        raise HTTPException(status_code=400, detail="CSV is empty")
-        
-    required_cols = {"date", "product", "quantity", "unit", "warehouse"}
-    if not set(reader[0].keys()).issuperset(required_cols):
+    try:
+        decoded = (await file.read()).decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="CSV must use UTF-8 encoding") from exc
+
+    reader = csv.DictReader(io.StringIO(decoded))
+    missing = REQUIRED_COLUMNS - set(reader.fieldnames or ())
+    if missing:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=f"Missing required columns. Expected at least: {required_cols}"
+            status_code=400,
+            detail=f"Missing required columns: {', '.join(sorted(missing))}",
         )
 
+    records = [
+        _parse_inventory_row(row, row_index)
+        for row_index, row in enumerate(reader, start=2)
+    ]
+    if not records:
+        raise HTTPException(status_code=400, detail="CSV contains no data rows")
+
+    keys = [(record.date, record.split, record.time) for record in records]
+    if len(set(keys)) != len(keys):
+        raise HTTPException(status_code=400, detail="CSV contains duplicate inventory rows")
+
     repo = StockRepository(session)
-    
-    try:
-        # 1. Parse and validate all rows first (In-memory validation)
-        parsed_records = []
-        for row_index, row in enumerate(reader, start=2):
-            parsed_records.append(_parse_and_validate_row(row, row_index))
-            
-        # 2. Bulk check for duplicates (Performance Optimization: O(1) query instead of O(N))
-        existing_keys = await repo.get_existing_keys(parsed_records)
-        
-        records_to_insert = []
-        for row_index, parsed in enumerate(parsed_records, start=2):
-            # ตรวจสอบซ้ำกับฐานข้อมูล
-            key = (parsed["recorded_at"], parsed["product"], parsed["warehouse"])
-            if key in existing_keys:
-                raise HTTPException(
-                    status_code=400, 
-                    detail={"row": row_index, "column": "all", "reason": f"Duplicate entry found for {parsed['product']} on {parsed['date_str']} at {parsed['warehouse']}"}
-                )
-                
-            # แปลงเป็น Model ก่อนบันทึก
-            records_to_insert.append(ShrimpStockData(
-                recorded_at=parsed["recorded_at"],
-                product=parsed["product"],
-                quantity=parsed["quantity"],
-                unit=parsed["unit"],
-                warehouse=parsed["warehouse"],
-                source="csv"
-            ))
+    existing_keys = await repo.get_existing_keys(
+        [{"date": record.date, "split": record.split, "time": record.time} for record in records]
+    )
+    duplicates = set(keys) & existing_keys
+    if duplicates:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Database already contains {len(duplicates)} inventory row(s) from this CSV",
+        )
 
-        # 3. Bulk Insert
-        await repo.bulk_insert(records_to_insert)
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return StockUploadResponse(message="Upload successful", records_inserted=len(records_to_insert))
+    await repo.bulk_insert(records)
+    return StockUploadResponse(message="Upload successful", records_inserted=len(records))
 
 
 async def get_stocks(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
-    product: Optional[str] = Query(None),
-    warehouse: Optional[str] = Query(None),
-    session: AsyncSession = Depends(get_db_session)
-) -> List[StockRecordResponse]:
+    split: Optional[str] = Query(None),
+    time_value: Optional[str] = Query(None, alias="time"),
+    product: Optional[str] = Query(None, description="Retained for compatibility; inventory data has no product column"),
+    warehouse: Optional[str] = Query(None, description="Alias for split"),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[StockRecordResponse]:
+    # This column has no product dimension; retain the old query parameter without filtering.
+    _ = product
     repo = StockRepository(session)
-    stocks = await repo.get_all_stocks(start_date, end_date, product, warehouse)
-    return [StockRecordResponse.model_validate(s) for s in stocks]
+    stocks = await repo.get_all_stocks(
+        start_date,
+        end_date,
+        split or warehouse,
+        time_value,
+    )
+    return [_as_stock_record(record) for record in stocks]
 
 
 async def get_summary(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
-    product: Optional[str] = Query(None),
-    warehouse: Optional[str] = Query(None),
-    session: AsyncSession = Depends(get_db_session)
+    split: Optional[str] = Query(None),
+    time_value: Optional[str] = Query(None, alias="time"),
+    session: AsyncSession = Depends(get_db_session),
 ) -> StockSummaryResponse:
     repo = StockRepository(session)
-    summary_data = await repo.get_summary(start_date, end_date, product, warehouse)
+    summary_data = await repo.get_summary(start_date, end_date, split, time_value)
+    if isinstance(summary_data["latest_record"], date):
+        summary_data["latest_record"] = datetime.combine(summary_data["latest_record"], time.min)
     return StockSummaryResponse(**summary_data)
 
 
 async def get_products(
-    session: AsyncSession = Depends(get_db_session)
+    session: AsyncSession = Depends(get_db_session),
 ) -> ProductListResponse:
     repo = StockRepository(session)
-    products = await repo.get_products()
-    return ProductListResponse(products=products)
+    return ProductListResponse(products=["Inventory"] if await repo.get_splits() else [])
 
 
 async def get_history(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
-    product: Optional[str] = Query(None),
-    warehouse: Optional[str] = Query(None),
-    session: AsyncSession = Depends(get_db_session)
+    product: Optional[str] = Query(None, description="Retained for compatibility; inventory data has no product column"),
+    split: Optional[str] = Query(None),
+    session: AsyncSession = Depends(get_db_session),
 ) -> StockHistoryResponse:
     repo = StockRepository(session)
-    stocks = await repo.get_all_stocks(start_date, end_date, product, warehouse)
-    # Sort history chronologically for charts
-    stocks.sort(key=lambda x: x.recorded_at)
-    data = [StockHistoryDataPoint(recorded_at=s.recorded_at, product=s.product, quantity=s.quantity) for s in stocks]
+    stocks = await repo.get_all_stocks(start_date, end_date, split)
+    stocks.sort(key=lambda record: (record.date, record.time))
+    requested_product = product or "Inventory"
+    data = [
+        StockHistoryDataPoint(
+            recorded_at=datetime.combine(record.date, time.fromisoformat(record.time)),
+            product=requested_product,
+            quantity=record.total_boxes,
+        )
+        for record in stocks
+    ]
     return StockHistoryResponse(data=data)

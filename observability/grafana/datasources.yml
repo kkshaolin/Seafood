@@ -23,7 +23,7 @@ datasources:
     url: postgres:5432
     user: admin
     secureJsonData:
-      password: secretpassword
+      password: $__env{POSTGRES_PASSWORD}
     jsonData:
       database: my_database
       sslmode: disable

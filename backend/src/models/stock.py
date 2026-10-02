@@ -7,26 +7,38 @@
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Integer, String, Float, DateTime, Date, Text, func
+from sqlalchemy import Integer, String, Float, DateTime, Date, Time, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.database import Base
 
-class ShrimpStockData(Base):
-    """ข้อมูล Stock Time Series"""
-    __tablename__ = "shrimp_stocks"
+class InventorySummary(Base):
+    """ข้อมูล Inventory Summary จากคลังสินค้า"""
+    __tablename__ = "inventory_summaries"
+    __table_args__ = (
+        UniqueConstraint("date", "time", "split", name="uq_inventory_summary_observation"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    product: Mapped[str] = mapped_column(String(50), index=True)
-    quantity: Mapped[float] = mapped_column(Float)
-    unit: Mapped[str] = mapped_column(String(20), default="kg", server_default="kg")
-    warehouse: Mapped[Optional[str]] = mapped_column(String(100))
-    source: Mapped[Optional[str]] = mapped_column(String(50))  # e.g., 'camera', 'manual', 'csv'
+    image_path: Mapped[str] = mapped_column(String(255))
+    split: Mapped[str] = mapped_column(String(50))
+    date: Mapped[date] = mapped_column(Date, index=True)
+    time: Mapped[str] = mapped_column(String(10))
+    total_boxes: Mapped[int] = mapped_column(Integer)
+    total_weight_kg: Mapped[float] = mapped_column(Float)
+    occupied_slots: Mapped[int] = mapped_column(Integer)
+    empty_slots: Mapped[int] = mapped_column(Integer)
+    occupancy_pct: Mapped[float] = mapped_column(Float)
+    boxes_level1: Mapped[int] = mapped_column(Integer)
+    boxes_level2: Mapped[int] = mapped_column(Integer)
+    boxes_level3: Mapped[int] = mapped_column(Integer)
+    boxes_level4: Mapped[int] = mapped_column(Integer)
+    inbound_boxes: Mapped[int] = mapped_column(Integer)
+    outbound_boxes: Mapped[int] = mapped_column(Integer)
+    cold_room_temp_c: Mapped[float] = mapped_column(Float)
+    humidity_pct: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+
 
 
 class CameraLog(Base):
@@ -67,5 +79,5 @@ class ForecastResult(Base):
     lower_bound: Mapped[Optional[float]] = mapped_column(Float)
     upper_bound: Mapped[Optional[float]] = mapped_column(Float)
     model_name: Mapped[str] = mapped_column(String(100))
-    model_version: Mapped[Optional[str]] = mapped_column(String(50))
+    model_version: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -5,7 +5,7 @@
 """
 
 from pydantic import BaseModel, ConfigDict
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
 from datetime import date
 
 class ForecastRequest(BaseModel):
@@ -54,7 +54,7 @@ class TrainingJobResult(BaseModel):
 
 class ForecastJobStatusResponse(BaseModel):
     status: str
-    result: Optional[TrainingJobResult] = None
+    result: Optional[Union[TrainingJobResult, ForecastResponse]] = None
     error: Optional[str] = None
 
 

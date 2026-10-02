@@ -1,14 +1,12 @@
-"""Repository layer สำหรับติดต่อฐานข้อมูลของตาราง shrimp_stocks.
+"""Database queries for inventory summaries."""
 
-ทำหน้าที่สร้าง query สำหรับ filter ข้อมูล, summary, product list, duplicate check และ bulk insert
-เพื่อให้ controller ใช้งานได้โดยไม่ต้องเขียน SQL ตรง ๆ ใน endpoint.
-"""
+from datetime import date
+from typing import Optional
 
-from datetime import datetime, date
-from typing import Optional, List, Tuple
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from models.stock import ShrimpStockData
+
+from models.stock import InventorySummary
 
 
 class StockRepository:
@@ -19,20 +17,20 @@ class StockRepository:
         self,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
-        product: Optional[str] = None,
-        warehouse: Optional[str] = None
-    ) -> List[ShrimpStockData]:
-        stmt = select(ShrimpStockData)
+        split: Optional[str] = None,
+        time: Optional[str] = None,
+    ) -> list[InventorySummary]:
+        stmt = select(InventorySummary)
         if start_date:
-            stmt = stmt.where(ShrimpStockData.recorded_at >= start_date)
+            stmt = stmt.where(InventorySummary.date >= start_date)
         if end_date:
-            stmt = stmt.where(ShrimpStockData.recorded_at <= end_date)
-        if product:
-            stmt = stmt.where(ShrimpStockData.product == product)
-        if warehouse:
-            stmt = stmt.where(ShrimpStockData.warehouse == warehouse)
-            
-        stmt = stmt.order_by(ShrimpStockData.recorded_at.desc())
+            stmt = stmt.where(InventorySummary.date <= end_date)
+        if split:
+            stmt = stmt.where(InventorySummary.split == split)
+        if time:
+            stmt = stmt.where(InventorySummary.time == time)
+
+        stmt = stmt.order_by(InventorySummary.date.desc(), InventorySummary.time.desc())
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -40,81 +38,72 @@ class StockRepository:
         self,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
-        product: Optional[str] = None,
-        warehouse: Optional[str] = None
+        split: Optional[str] = None,
+        time: Optional[str] = None,
     ) -> dict:
-        stmt = select(
-            func.sum(ShrimpStockData.quantity),
-            func.avg(ShrimpStockData.quantity),
-            func.min(ShrimpStockData.quantity),
-            func.max(ShrimpStockData.quantity),
-            func.max(ShrimpStockData.recorded_at),
-            func.count(ShrimpStockData.id)
-        )
+        filters = []
         if start_date:
-            stmt = stmt.where(ShrimpStockData.recorded_at >= start_date)
+            filters.append(InventorySummary.date >= start_date)
         if end_date:
-            stmt = stmt.where(ShrimpStockData.recorded_at <= end_date)
-        if product:
-            stmt = stmt.where(ShrimpStockData.product == product)
-        if warehouse:
-            stmt = stmt.where(ShrimpStockData.warehouse == warehouse)
+            filters.append(InventorySummary.date <= end_date)
+        if split:
+            filters.append(InventorySummary.split == split)
+        if time:
+            filters.append(InventorySummary.time == time)
+
+        latest_stmt = (
+            select(InventorySummary.total_boxes)
+            .where(*filters)
+            .order_by(InventorySummary.date.desc(), InventorySummary.time.desc())
+            .limit(1)
+        )
+        stmt = select(
+            latest_stmt.scalar_subquery(),
+            func.avg(InventorySummary.total_boxes),
+            func.min(InventorySummary.total_boxes),
+            func.max(InventorySummary.total_boxes),
+            func.max(InventorySummary.date),
+            func.count(InventorySummary.id),
+        )
+        if filters:
+            stmt = stmt.where(*filters)
 
         result = await self.session.execute(stmt)
-        row = result.first()
-        
+        row = result.one()
         return {
-            "current_stock": row[0] if row[0] is not None else 0.0, # using sum for current stock inside period
-            "average_stock": row[1] if row[1] is not None else 0.0,
-            "minimum_stock": row[2] if row[2] is not None else 0.0,
-            "maximum_stock": row[3] if row[3] is not None else 0.0,
+            "current_stock": row[0] or 0.0,
+            "average_stock": row[1] or 0.0,
+            "minimum_stock": row[2] or 0.0,
+            "maximum_stock": row[3] or 0.0,
             "latest_record": row[4],
-            "number_of_records": row[5] if row[5] is not None else 0
+            "number_of_records": row[5] or 0,
         }
 
-    async def get_products(self) -> List[str]:
-        stmt = select(ShrimpStockData.product).distinct()
+    async def get_splits(self) -> list[str]:
+        stmt = select(InventorySummary.split).distinct().order_by(InventorySummary.split)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def check_duplicate(self, recorded_at: datetime, product: str, warehouse: Optional[str]) -> bool:
-        stmt = select(ShrimpStockData.id).where(
-            and_(
-                ShrimpStockData.recorded_at == recorded_at,
-                ShrimpStockData.product == product,
-                ShrimpStockData.warehouse == warehouse
-            )
-        ).limit(1)
-        result = await self.session.execute(stmt)
-        return result.first() is not None
-
-    async def get_existing_keys(self, records: List[dict]) -> set:
-        """
-        ดึงข้อมูล key (recorded_at, product, warehouse) ที่มีอยู่แล้วในฐานข้อมูล 
-        เพื่อใช้ตรวจสอบ Duplicate แบบ Bulk ช่วยลดปัญหา N+1 Query
-        """
+    async def get_existing_keys(self, records: list[dict]) -> set[tuple]:
         if not records:
             return set()
-            
-        # สร้างเงื่อนไขจาก records ที่ส่งเข้ามา
-        conditions = []
-        for r in records:
-            conditions.append(
-                and_(
-                    ShrimpStockData.recorded_at == r["recorded_at"],
-                    ShrimpStockData.product == r["product"],
-                    ShrimpStockData.warehouse == r["warehouse"]
-                )
-            )
-            
-        # ใช้ or_ เพื่อรวบรวมเงื่อนไขทั้งหมด (ใช้ or_() ใน SQLAlchemy)
-        from sqlalchemy import or_
-        stmt = select(ShrimpStockData.recorded_at, ShrimpStockData.product, ShrimpStockData.warehouse).where(
-            or_(*conditions)
-        )
-        result = await self.session.execute(stmt)
-        return set(result.all())
 
-    async def bulk_insert(self, records: List[ShrimpStockData]):
+        conditions = [
+            and_(
+                InventorySummary.date == record["date"],
+                InventorySummary.split == record["split"],
+                InventorySummary.time == record["time"],
+            )
+            for record in records
+        ]
+        stmt = select(
+            InventorySummary.date,
+            InventorySummary.split,
+            InventorySummary.time,
+        ).where(or_(*conditions))
+        result = await self.session.execute(stmt)
+        return {tuple(row) for row in result.all()}
+
+    async def bulk_insert(self, records: list[InventorySummary]) -> None:
         self.session.add_all(records)
         await self.session.commit()

@@ -33,11 +33,11 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT * FROM shrimp_stocks ORDER BY recorded_at DESC LIMIT 100;",
+          "rawSql": "SELECT * FROM inventory_summaries ORDER BY date DESC LIMIT 100;",
           "refId": "A"
         }
       ],
-      "title": "Shrimp Stocks Data (Latest 100)",
+      "title": "Inventory Summaries Data (Latest 100)",
       "type": "table"
     },
     {

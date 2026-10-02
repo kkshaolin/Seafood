@@ -12,6 +12,13 @@ Workers ใช้ ARQ/Redis เพื่อแยกงานจาก HTTP requ
 
 - `inference_worker/worker.py`: ARQ job entry point สำหรับ forecast
 - `inference_worker/forecast_model/`: preprocessing, ARIMA fitting, metrics และ service ที่อ่าน CSV/บันทึกผล forecast
+
+ข้อมูล inventory ใช้ไฟล์หลักที่ `storage/data/csvfile/inventory/inventory_summary.csv`
+และรองรับไฟล์เดิม `storage/data/csv_file/inventory_summary (1).csv` เป็น fallback
+เมื่อเริ่ม Compose จะมี `inventory-seed` สร้าง schema และนำเข้าข้อมูลลง `inventory_summaries`
+ก่อนเริ่ม backend/workers; สั่งนำเข้าซ้ำได้ด้วย `docker compose run --rm inventory-seed`.
+งาน ARIMA ฝึกจากข้อมูลเดียวกันและบันทึกโมเดลไว้ใน `storage/models/time_serie/`
+พร้อมอัปโหลดสำเนาไปยัง MinIO; forecast อ่านข้อมูล inventory จาก PostgreSQL และใช้โมเดลที่เทรนไว้เมื่อพบ.
 - `training_worker/worker.py`: ARQ entry point สำหรับ training job
 - `data_worker/worker.py`: กำหนด schedule/งานนำเข้าข้อมูลและเรียก ingestion modules
 - `data_worker/ingestion/`: adapters สำหรับ financials, stocks, trades, database และ MinIO
