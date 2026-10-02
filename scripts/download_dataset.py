@@ -23,8 +23,8 @@ def main():
     # เชื่อมต่อ object storage ที่รองรับ S3 โดยอ่าน endpoint และ credentials จาก environment
     minio_client = Minio(
         os.getenv('MINIO_ENDPOINT', 'localhost:9000'),
-        access_key=os.getenv('MINIO_ACCESS_KEY', 'minioadmin'),
-        secret_key=os.getenv('MINIO_SECRET_KEY', 'minioadmin'),
+        access_key=os.getenv('MINIO_ACCESS_KEY', 'admin'),
+        secret_key=os.getenv('MINIO_SECRET_KEY', 'password123'),
         secure=False
     )
     

@@ -56,7 +56,10 @@ services:
 
   # โหลดชุดข้อมูล inventory ลง PostgreSQL ก่อน API และ workers เริ่มทำงาน
   inventory-seed:
-    image: i_loveseafood-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: i_loveseafood-backend:latest
     command: ["python", "/workers/seed_inventory.py"]
     restart: "no"
     environment:
@@ -86,6 +89,11 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     logging:                      
       driver: "json-file"
       options:
@@ -93,11 +101,32 @@ services:
         max-file: "3"
     networks:
       - ai-network
+
+  # สร้าง Buckets เริ่มต้นใน MinIO ให้พร้อมใช้โดยอัตโนมัติ
+  minio-init:
+    image: minio/minio:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 admin password123;
+      mc mb --ignore-existing local/mlflow-artifacts;
+      mc mb --ignore-existing local/datasets;
+      mc mb --ignore-existing local/models;
+      mc mb --ignore-existing local/ai-ecosystem-data;
+      exit 0;
+      "
+    networks:
+      - ai-network
+    restart: "no"
+
   # FastAPI รับ HTTP requests และเปิด health check ให้ host กับบริการใน Compose
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: i_loveseafood-backend:latest
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -124,7 +153,9 @@ services:
       inventory-seed:
         condition: service_completed_successfully
       minio:
-        condition: service_started
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     networks:
       - ai-network
     healthcheck:                      # ตรวจ readiness เพื่อป้องกันการเริ่ม service ก่อน dependency พร้อม
@@ -215,7 +246,9 @@ services:
       inventory-seed:
         condition: service_completed_successfully
       minio:
-        condition: service_started
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py", "training_worker.worker.WorkerSettings"]
       interval: 60s
@@ -259,7 +292,9 @@ services:
       redis:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       backend:
         condition: service_healthy    # backend เตรียมตารางฐานข้อมูลตอนเริ่มก่อนให้ worker ทำงาน
     healthcheck:
@@ -297,7 +332,9 @@ services:
       postgres:
         condition: service_started
       minio:
-        condition: service_started
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     networks:
       - ai-network
 

@@ -43,6 +43,7 @@ htmlcov/
 # ==========================================
 .env
 .env.*
+!.env.example
 backend/.env
 *.env
 *.pem
@@ -61,12 +62,18 @@ storage/logs/*
 # Ignore data & Label Studio data volumes
 storage/data/*
 !storage/data/.gitkeep
+!storage/data/csvfile/
+!storage/data/csvfile/**
+!storage/data/csv_file/
+!storage/data/csv_file/**
 label_studio_data/
 storage/data/label_studio_data/
 
 # Ignore AI/ML Model weights and checkpoints
 storage/models/*
 !storage/models/.gitkeep
+!storage/models/time_serie/
+!storage/models/time_serie/**
 *.pt
 *.pth
 *.onnx

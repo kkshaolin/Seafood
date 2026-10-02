@@ -16,6 +16,9 @@ RUN pip install --no-cache-dir uv
 # คัดลอกเฉพาะไฟล์ dependencies ก่อน เพื่อใช้งาน Docker Cache
 COPY requirements.txt ./
 
+# ติดตั้ง PyTorch รุ่น CPU ที่มีขนาดเล็ก (~180MB แทนที่จะเป็น 2GB+ ของ CUDA)
+RUN uv pip install --system --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
 # ติดตั้ง Dependencies ลงใน System ของ builder stage
 RUN uv pip install --system --no-cache-dir -r requirements.txt
 

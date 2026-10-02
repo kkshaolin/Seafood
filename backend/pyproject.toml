@@ -30,7 +30,6 @@ dependencies = [
     "opentelemetry-exporter-otlp",
     "greenlet>=3.5.3",
     "statsmodels>=0.15.0",
-    "ultralytics>=8.4.123",
 ]
 
 [dependency-groups]

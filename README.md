@@ -71,39 +71,101 @@ Stock History ของหน้าเว็บอ่านจาก PostgreSQL 
 
 โฟลเดอร์ dependencies, virtual environments, caches, build output, runtime data และ model binaries ไม่ใช่ source files ของโปรเจกต์ จึงไม่ได้รับ inline comments
 
-## เริ่มระบบด้วย Docker Compose
+## การเริ่มระบบด้วย Docker Compose (Quick Start)
 
-ต้องติดตั้ง Docker Desktop/Engine และ Docker Compose ก่อน คำสั่งจาก repository root:
+### ข้อกำหนดเบื้องต้น (Prerequisites)
+- ติดตั้ง [Docker Desktop](https://www.docker.com/products/docker-desktop/) (หรือ Docker Engine พร้อม Docker Compose v2)
+- แนะนำให้จัดสรร RAM ให้ Docker อย่างน้อย 4 GB - 6 GB ขึ้นไป เพื่อรองรับการทำงานของ Database, ML Workers และ Observability Stack
+
+### ขั้นตอนการเริ่มใช้งานครั้งแรก (First-Time Setup)
+
+1. **Clone repository และเข้าไปยังโฟลเดอร์โปรเจกต์:**
+   ```bash
+   git clone <repository-url>
+   cd I_LoveSeafood
+   ```
+
+2. **คัดลอกไฟล์ Environment Variables:**
+   ```bash
+   # บน Linux / macOS:
+   cp .env.example .env
+
+   # บน Windows (PowerShell):
+   copy .env.example .env
+   ```
+
+3. **สั่งบิลด์และเริ่มระบบคอนเทนเนอร์:**
+   ```bash
+   # Compose จะรวม compose.override.yml อัตโนมัติ (เปิด Vite Dev Server, Hot-reload และ MinIO Buckets Init)
+   docker compose up -d --build
+   ```
+   > [!NOTE]
+   > ระบบจะทำงานตามลำดับโดยอัตโนมัติ:
+   > 1. รอ PostgreSQL และ Redis พร้อมทำงาน
+   > 2. สั่ง `minio-init` สร้าง Bucket ที่จำเป็นบน MinIO (`mlflow-artifacts`, `datasets`, `models`, `ai-ecosystem-data`) ให้อัตโนมัติ
+   > 3. สั่ง `inventory-seed` เตรียมโครงสร้างตารางและโหลดชุดข้อมูล inventory ตัวอย่างลงฐานข้อมูล
+   > 4. เริ่มต้น Backend API, Background Workers, MLflow, Observability Stack และ Frontend (Vite)
+
+4. **ตรวจสอบสถานะคอนเทนเนอร์:**
+   ```bash
+   docker compose ps
+   ```
+   ทุกคอนเทนเนอร์ควรขึ้นสถานะ `Up` หรือ `Up (healthy)`
+
+5. **ตรวจสอบ System Health ผ่าน API:**
+   ```bash
+   # ตรวจสอบว่า Database, Redis และ MinIO เชื่อมต่อสมบูรณ์
+   curl http://localhost:8000/health
+   ```
+   ผลลัพธ์ที่ได้ควรแสดง `"status": "healthy"` และบริการทั้งหมดเป็น `"connected"`
+
+---
+
+### พอร์ตและหน้าจอของบริการในระบบ (Service URLs)
+
+| บริการ (Service) | ที่อยู่จาก Host (URL) | ข้อมูลการเข้าใช้งาน (Credentials) |
+|---|---|---|
+| **Frontend Dashboard** | [http://localhost:8081/](http://localhost:8081/) | เข้าใช้งานได้ทันที (React + Vite dev server) |
+| **Backend API & Swagger** | [http://localhost:8000/](http://localhost:8000/) / [Docs](http://localhost:8000/docs) | เอกสาร OpenAPI / Swagger UI |
+| **MinIO Web Console** | [http://localhost:9001/](http://localhost:9001/) | User: `admin` / Password: `password123` |
+| **MinIO S3 API Endpoint** | [http://localhost:9000/](http://localhost:9000/) | เข้าถึงผ่าน S3 API หรือ SDK |
+| **MLflow Tracking UI** | [http://localhost:5000/](http://localhost:5000/) | ตรวจสอบ Experiment runs และ Artifacts |
+| **Grafana Dashboards** | [http://localhost:3000/](http://localhost:3000/) | เข้าใช้งานแบบ Anonymous (ไม่ต้องล็อกอิน) |
+| **Prometheus Metrics** | [http://localhost:9090/](http://localhost:9090/) | ดูสถานะ Metrics และ Target status |
+| **Loki / Tempo** | `localhost:3100` / `localhost:3200` | Log & Distributed Trace Backends |
+| **PostgreSQL** | `localhost:5433` (พอร์ต host) | User: `admin`, Password: `secretpassword`, DB: `my_database` |
+| **Redis** | `localhost:6379` | Message broker สำหรับ ARQ Workers |
+
+---
+
+### คำสั่งจัดการระบบที่ใช้งานบ่อย (Useful Commands)
 
 ```bash
-# Development: Compose จะรวม compose.override.yml ให้อัตโนมัติ
-docker compose up -d --build
-
-# ดูสถานะและ log
-docker compose ps
+# ดู Log ของบริการหลักแบบเรียลไทม์
 docker compose logs -f backend frontend forecasting-worker
 
-# หยุด containers โดยเก็บ named volumes/ข้อมูลไว้
+# ดู Log เฉพาะ worker งานนำเข้าข้อมูล (Data Ingestion)
+docker compose logs -f data-worker
+
+# รีสตาร์ทเฉพาะบริการที่ต้องการหลังแก้ไขคอนฟิก
+docker compose restart forecasting-worker data-worker
+
+# หยุดการทำงานชั่วคราว (ไม่ลบข้อมูลและ Container)
+docker compose stop
+
+# ปิดระบบและลบคอนเทนเนอร์ (ข้อมูลใน Named Volumes ยังถูกเก็บรักษาไว้)
 docker compose down
+
+# ล้างระบบและคืนพื้นที่ทั้งหมดรวมถึงข้อมูลในฐานข้อมูล/MinIO (Clean Slate)
+docker compose down -v
 ```
 
-หน้าเว็บ development อยู่ที่ <http://localhost:8081/> และ backend API/Swagger อยู่ที่ <http://localhost:8000/> และ <http://localhost:8000/docs/> ตามลำดับ ในโหมด development Vite proxy ใช้ชื่อ Docker service `backend:8000` จึงต้องเข้าถึงผ่าน frontend ใน Compose network
-
-พอร์ตและหน้าจออื่นที่กำหนดไว้ใน Compose:
-
-| Service | ที่อยู่จาก host |
-|---|---|
-| PostgreSQL | `localhost:5433` |
-| Redis | `localhost:6379` |
-| MinIO API / Console | `localhost:9000` / `localhost:9001` |
-| MLflow | `localhost:5000` |
-| Prometheus | `localhost:9090` |
-| Grafana | `localhost:3000` |
-| Loki / Tempo | `localhost:3100` / `localhost:3200` |
-
-`compose.override.yml` เปลี่ยน frontend ให้ใช้ Vite development server และ bind-mount source ส่วนการรันเฉพาะไฟล์หลักโดยไม่มี override ใช้ `docker compose -f compose.yml up -d --build` ซึ่งสร้าง static frontend และให้ Nginx ให้บริการแทน Vite
-
-ตัวแปรระบบที่ Compose ใช้ควบคุมอยู่ใน `compose.yml` และ environment ของเครื่อง; ห้าม commit credentials จริงลง repository ค่าที่อยู่ใน Compose เป็นค่าเริ่มต้นสำหรับการพัฒนาเท่านั้น
+> [!TIP]
+> **โหมด Production (Nginx Frontend):**
+> หากต้องการรันระบบแบบ Production โดยไม่ใช้ Vite dev server ให้รันด้วยคำสั่ง:
+> ```bash
+> docker compose -f compose.yml up -d --build
+> ```
 
 ## API ที่ใช้งานจาก Dashboard
 

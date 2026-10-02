@@ -1,9 +1,9 @@
 # ค่าทับสำหรับพัฒนา: รัน Vite, mount source code และเฝ้าดูการเปลี่ยนไฟล์ของ workers
 services:
   frontend:
-    # ใช้ Node build stage และ Vite dev server แทน Nginx เพื่ออัปเดตหน้าจอขณะเขียนโค้ด
+    # ใช้ Node dev stage และ Vite dev server แทน Nginx เพื่ออัปเดตหน้าจอขณะเขียนโค้ด
     build:
-      target: builder
+      target: dev
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "80"]
     volumes:
       - ./frontend:/app

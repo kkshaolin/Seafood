@@ -1,10 +1,13 @@
-# ใช้ Node build แอป React ก่อน แล้วนำไฟล์ static ที่ได้ไปให้ Nginx เสิร์ฟ
-FROM node:18-alpine AS builder
+# Stage 1: Dev stage สำหรับติดตั้ง dependencies และเตรียม source code
+FROM node:18-alpine AS dev
 WORKDIR /app
 # ติดตั้ง dependencies แยกจาก source เพื่อให้ Docker cache ชั้นนี้เมื่อโค้ดเปลี่ยน
 COPY package*.json ./
 RUN npm install
 COPY . .
+
+# Stage 2: Builder stage คอมไพล์ TypeScript และ Vite bundle สำหรับ production
+FROM dev AS builder
 RUN npm run build
 
 # image ปลายทางมีเฉพาะ Nginx, static SPA และการตั้งค่า proxy ใน nginx.conf

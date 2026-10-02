@@ -211,13 +211,22 @@ async def _upgrade_forecast_schema(connection) -> None:
 
 
 async def seed_inventory() -> int:
-    csv_path = get_inventory_csv_path()
-    records = _read_inventory_rows(csv_path)
-
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
         await _upgrade_inventory_schema(connection)
         await _upgrade_forecast_schema(connection)
+
+    try:
+        csv_path = get_inventory_csv_path()
+        records = _read_inventory_rows(csv_path)
+    except (FileNotFoundError, ValueError) as exc:
+        logger.warning(
+            "Inventory CSV not available (%s); database tables initialized successfully without seed records.",
+            exc,
+        )
+        return 0
+
+    async with engine.begin() as connection:
         deduplicated = await connection.execute(
             text(
                 """
