@@ -30,6 +30,7 @@ INTEGER_COLUMNS = (
     "boxes_level1",
     "boxes_level2",
     "boxes_level3",
+    "boxes_level4",
     "inbound_boxes",
     "outbound_boxes",
 )
@@ -65,8 +66,19 @@ def _read_inventory_rows(csv_path: Path) -> list[InventorySummary]:
                 recorded_time = time.fromisoformat(row["time"].strip()).isoformat(
                     timespec="minutes"
                 )
-                integer_values = {name: int(row[name]) for name in INTEGER_COLUMNS}
-                float_values = {name: float(row[name]) for name in FLOAT_COLUMNS}
+                
+                # ป้องกันค่าว่างในช่องข้อมูลจำนวนเต็ม (แปลงช่องว่างให้เป็น 0)
+                integer_values = {}
+                for name in INTEGER_COLUMNS:
+                    val = row.get(name, "").strip()
+                    integer_values[name] = int(val) if val and val.lower() != "null" else 0
+
+                # ป้องกันค่าว่างในช่องข้อมูลทศนิยม
+                float_values = {}
+                for name in FLOAT_COLUMNS:
+                    val = row.get(name, "").strip()
+                    float_values[name] = float(val) if val and val.lower() != "null" else 0.0
+
                 if not all(math.isfinite(value) for value in float_values.values()):
                     raise ValueError("numeric fields must be finite")
                 if not row["split"].strip() or not row["image"].strip():
