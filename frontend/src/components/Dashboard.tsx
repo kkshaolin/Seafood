@@ -371,29 +371,9 @@ export const Dashboard = () => {
             </div>
           )}
 
-          {/* การ์ดสรุป: ปริมาณปัจจุบัน ค่าเฉลี่ย ค่าพยากรณ์ถัดไป และผลประเมินความเสี่ยง */}
+          {/* การ์ดสรุป: ย้าย Risk Status มาไว้ซ้ายสุด */}
           <div className="grid grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-gray-500 mb-1 flex items-center justify-between">
-                <span>Current Stock</span>
-                <Box className="w-4 h-4 text-blue-500" />
-              </div>
-              <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} kg</div>
-            </div>
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-gray-500 mb-1 flex items-center justify-between">
-                <span>Average Monthly</span>
-                <Activity className="w-4 h-4 text-purple-500" />
-              </div>
-              <div className="text-2xl font-bold text-gray-800">{avgStock} kg</div>
-            </div>
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-gray-500 mb-1 flex items-center justify-between">
-                <span>Forecast (Next)</span>
-                <TrendingUp className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div className="text-2xl font-bold text-gray-800">{nextForecast} kg</div>
-            </div>
+            {/* 1. การ์ด Risk Status (ย้ายมาไว้ซ้ายสุด) */}
             <div className={`p-4 rounded-xl border shadow-sm ${
               riskData?.risk_level === 'Critical' ? 'bg-red-50 border-red-200' 
               : riskData?.risk_level === 'Warning' ? 'bg-orange-50 border-orange-200'
@@ -425,6 +405,33 @@ export const Dashboard = () => {
               }`}>
                 {riskData?.reason || (nextForecast !== '-' ? 'Waiting for model forecast' : 'Run forecast to evaluate risk')}
               </div>
+            </div>
+
+            {/* 2. การ์ด Current Stock */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <div className="text-gray-500 mb-1 flex items-center justify-between">
+                <span>Current Stock</span>
+                <Box className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} kg</div>
+            </div>
+
+            {/* 3. การ์ด Average Monthly */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <div className="text-gray-500 mb-1 flex items-center justify-between">
+                <span>Average Monthly</span>
+                <Activity className="w-4 h-4 text-purple-500" />
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{avgStock} kg</div>
+            </div>
+
+            {/* 4. การ์ด Forecast (Next) */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <div className="text-gray-500 mb-1 flex items-center justify-between">
+                <span>Forecast (Next)</span>
+                <TrendingUp className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{nextForecast} kg</div>
             </div>
           </div>
 
