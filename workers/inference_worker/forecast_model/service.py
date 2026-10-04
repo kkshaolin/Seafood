@@ -97,10 +97,12 @@ class ForecastingService:
         stock_df = await self.get_inventory_data()
         if stock_df.empty:
             raise PreprocessingError(f"Insufficient data: No stock records found for product '{req.product}'")
+        stock_df['recorded_at'] = pd.to_datetime(stock_df['recorded_at'], utc=True)
             
         camera_df = await self.get_detected_stock_data()
         
         if not camera_df.empty:
+            camera_df['recorded_at'] = pd.to_datetime(camera_df['recorded_at'], utc=True)
             df = pd.merge(stock_df, camera_df, on='recorded_at', how='outer')
             df['quantity'] = df['quantity'].fillna(0.0)
             df['detected_stock'] = df['detected_stock'].fillna(0)

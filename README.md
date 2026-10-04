@@ -1,190 +1,189 @@
-# I_LoveSeafood
+# ShrimpStock AI (I_LoveSeafood)
 
-โปรเจกต์นี้เป็นระบบตัวอย่างจัดการสต็อกกุ้งและข้อมูลตลาด ประกอบด้วย Dashboard, FastAPI, PostgreSQL, worker แบบ asynchronous และชุดเครื่องมือ observability โดยแยกส่วนที่ทำงานจริงใน Compose ออกจาก prototype/utility ที่ยังไม่เชื่อมต่อไว้ชัดเจน
-
-## ภาพรวมการทำงาน
-
-```text
-Browser (React + Vite/Nginx)
-  └─ /api/* ──> FastAPI backend
-                 ├─ PostgreSQL: ประวัติ stock, settings, forecast results
-                 ├─ Redis/ARQ ──> Forecast worker ──> forecast job
-                 ├─ Redis/ARQ ──> Training worker ──> บันทึกโมเดล
-                 └─ Risk API
-
-Data worker ──> แหล่งข้อมูลตลาด/การเงิน ──> PostgreSQL และ MinIO
-Application/containers ──> OpenTelemetry, Prometheus, Loki, Tempo ──> Grafana
-```
-
-## ส่วนที่ทำงานในระบบปัจจุบัน
-
-- **Dashboard (`frontend/src/components/Dashboard.tsx`)** โหลดค่าตั้งค่า สรุปและประวัติ stock ผล forecast ล่าสุด และแสดงการประเมินความเสี่ยง การรัน forecast/training เริ่มงานผ่าน API แล้วติดตาม job
-- **Backend (`backend/src/main.py`)** ลงทะเบียน API สำหรับ stock, forecasting, settings, risk และ inventory ตัว inventory ปัจจุบันเป็น mock/demo route พร้อม health check ที่ `/health`
-- **Forecasting worker (`workers/inference_worker/worker.py`)** รับงานจาก `forecasting_queue`; **training worker (`workers/training_worker/worker.py`)** รับงานฝึกโมเดลจาก `training_queue`
-- **Data worker (`workers/data_worker/worker.py`)** รันงาน ingestion ตามกำหนดเวลาและใช้โมดูลใน `workers/data_worker/ingestion/`; ตัวอย่างเช่น trade job จะข้ามการดึงข้อมูลเมื่อ source ถูกปิดไว้ใน config
-- **PostgreSQL, Redis, MinIO และ observability services** ถูกกำหนดใน `compose.yml`
-
-### แหล่งข้อมูล Forecast กับ Stock History ต่างกัน
-
-Stock History ของหน้าเว็บอ่านจาก PostgreSQL ผ่าน `/api/stock/history` ส่วน `ForecastingService` ใน worker ปัจจุบันอ่าน time series จาก `storage/data/csv_file/shrimp_stock_monthly_4y.csv` ไม่ได้อ่านประวัติจากฐานข้อมูลโดยตรง และมี mapping `Premium_White_Shrimp` ไปเป็น `tiger_shrimp_size_L` สำหรับไฟล์ชุดนั้น ดังนั้นการมีประวัติ stock ในฐานข้อมูลอย่างเดียวไม่ได้รับประกันว่า worker จะสร้าง forecast ได้ ต้องมีไฟล์ CSV และข้อมูลสินค้าที่ตรงกับ mapping ด้วย
-
-## ส่วนที่ยังไม่เชื่อมต่อหรือเป็นเครื่องมือเสริม
-
-- กลุ่ม camera API ใน `frontend/src/api/camera.ts` และ `frontend/src/services/api.ts` เป็น client helpers แต่ backend ปัจจุบันยังไม่ได้ลงทะเบียน camera router; หน้า Dashboard จึงยังไม่มี stream กล้องจริง ส่วนภาพที่แสดงเป็น placeholder และ branch กล้องจริงยังไม่ทำงาน
-- `frontend/src/services/api.ts` เป็น wrapper รุ่นเก่าที่ไม่ได้ใช้โดย Dashboard ปัจจุบัน ซึ่งใช้โมดูล `frontend/src/api/` แทน
-- `frontend/src/api/stock.ts` ยังมี helper สำหรับเรียก endpoint upload แต่ปุ่มอัปโหลดถูกเอาออกจาก Dashboard แล้ว; backend upload endpoint ยังอยู่
-- `backend/src/api/inventory.py` ลงทะเบียนกับ backend แต่หน้า Dashboard ปัจจุบันไม่ได้เรียกใช้งาน
-- `scripts/` เป็นสคริปต์ที่เรียกใช้ด้วยตนเอง ไม่ได้เริ่มอัตโนมัติจาก Compose; แผนภาพใน `diagrams/` เป็นเอกสาร ไม่ใช่ input ของระบบ
-- Worker ที่เริ่มทำงานไม่ได้แปลว่าทุก connector จะดึงข้อมูลจริงเสมอไป; ตรวจเปิด/ปิด source ใน config ของ ingestion ก่อนคาดหวังผลลัพธ์
-- JSON เช่น lockfile และ Grafana dashboard definitions เป็นไฟล์ข้อมูลที่ parser ไม่รองรับ comment; คำอธิบายบทบาทอยู่ใน README และคอมเมนต์ของไฟล์ provisioning ที่อ้างถึงไฟล์เหล่านั้น
-
-## โครงสร้างโฟลเดอร์
-
-```text
-.
-├── backend/
-│   ├── alembic/                 # migration scripts และการตั้งค่า Alembic
-│   └── src/
-│       ├── api/                 # endpoints: inventory, risk, settings, stock
-│       ├── core/                # application configuration และ legacy/shared setup
-│       ├── db/                  # SQLAlchemy async engine และ session dependency ที่ app ใช้
-│       ├── forecasting/         # forecast API, request/response schemas
-│       ├── models/              # ORM tables: stock, forecast, settings, market data
-│       ├── services/            # risk และ object-storage helpers
-│       └── main.py              # FastAPI entry point และ router registration
-├── frontend/
-│   ├── src/api/                 # API client แยกตามโดเมน
-│   ├── src/components/          # Dashboard และ UI
-│   ├── src/services/            # legacy API wrapper
-│   └── Dockerfile, nginx.conf, vite.config.ts
-├── workers/
-│   ├── data_worker/             # ingestion schedule และ connectors
-│   ├── inference_worker/        # ARIMA forecast และ worker entry point
-│   └── training_worker/         # model training worker
-├── observability/               # Collector, Prometheus, Loki, Tempo, Grafana config
-├── scripts/                     # utilities ที่เรียกใช้ด้วยตนเอง
-├── storage/                     # mount points สำหรับข้อมูลและโมเดล; เนื้อหาจริงถูก ignore
-├── diagrams/                    # draw.io architecture/workflow source files
-├── compose.yml                  # stack หลัก (production-style Nginx frontend)
-└── compose.override.yml         # development overrides: Vite, hot reload, dashboards
-```
-
-โฟลเดอร์ dependencies, virtual environments, caches, build output, runtime data และ model binaries ไม่ใช่ source files ของโปรเจกต์ จึงไม่ได้รับ inline comments
-
-## การเริ่มระบบด้วย Docker Compose (Quick Start)
-
-### ข้อกำหนดเบื้องต้น (Prerequisites)
-- ติดตั้ง [Docker Desktop](https://www.docker.com/products/docker-desktop/) (หรือ Docker Engine พร้อม Docker Compose v2)
-- แนะนำให้จัดสรร RAM ให้ Docker อย่างน้อย 4 GB - 6 GB ขึ้นไป เพื่อรองรับการทำงานของ Database, ML Workers และ Observability Stack
-
-### ขั้นตอนการเริ่มใช้งานครั้งแรก (First-Time Setup)
-
-1. **Clone repository และเข้าไปยังโฟลเดอร์โปรเจกต์:**
-   ```bash
-   git clone <repository-url>
-   cd I_LoveSeafood
-   ```
-
-2. **คัดลอกไฟล์ Environment Variables:**
-   ```bash
-   # บน Linux / macOS:
-   cp .env.example .env
-
-   # บน Windows (PowerShell):
-   copy .env.example .env
-   ```
-
-3. **สั่งบิลด์และเริ่มระบบคอนเทนเนอร์:**
-   ```bash
-   # Compose จะรวม compose.override.yml อัตโนมัติ (เปิด Vite Dev Server, Hot-reload และ MinIO Buckets Init)
-   docker compose up -d --build
-   ```
-   > [!NOTE]
-   > ระบบจะทำงานตามลำดับโดยอัตโนมัติ:
-   > 1. รอ PostgreSQL และ Redis พร้อมทำงาน
-   > 2. สั่ง `minio-init` สร้าง Bucket ที่จำเป็นบน MinIO (`mlflow-artifacts`, `datasets`, `models`, `ai-ecosystem-data`) ให้อัตโนมัติ
-   > 3. สั่ง `inventory-seed` เตรียมโครงสร้างตารางและโหลดชุดข้อมูล inventory ตัวอย่างลงฐานข้อมูล
-   > 4. เริ่มต้น Backend API, Background Workers, MLflow, Observability Stack และ Frontend (Vite)
-
-4. **ตรวจสอบสถานะคอนเทนเนอร์:**
-   ```bash
-   docker compose ps
-   ```
-   ทุกคอนเทนเนอร์ควรขึ้นสถานะ `Up` หรือ `Up (healthy)`
-
-5. **ตรวจสอบ System Health ผ่าน API:**
-   ```bash
-   # ตรวจสอบว่า Database, Redis และ MinIO เชื่อมต่อสมบูรณ์
-   curl http://localhost:8000/health
-   ```
-   ผลลัพธ์ที่ได้ควรแสดง `"status": "healthy"` และบริการทั้งหมดเป็น `"connected"`
+ระบบปัญญาประดิษฐ์และวิศวกรรมข้อมูล (AI Engineering Ecosystem) สำหรับบริหารจัดการสต็อกสินค้าอาหารทะเล (Frozen Shrimp) แบบอัตโนมัติครบวงจร ครอบคลุมตั้งแต่การดึงภาพจากกล้องวงจรปิดในคลัง, ตรวจนับกล่องด้วย YOLO, จัดเก็บข้อมูลลงฐานข้อมูลแบบลำดับชั้น (Daily / Monthly / Yearly), พยากรณ์ความต้องการสต็อกล่วงหน้าด้วย ARIMA และแสดงผล Dashboard แบบเรียลไทม์พร้อมระบบ Observability เต็มรูปแบบ
 
 ---
 
-### พอร์ตและหน้าจอของบริการในระบบ (Service URLs)
+## 🏗️ สถาปัตยกรรมระบบ (System Architecture)
 
-| บริการ (Service) | ที่อยู่จาก Host (URL) | ข้อมูลการเข้าใช้งาน (Credentials) |
+```mermaid
+flowchart TD
+    subgraph UI ["💻 Frontend (Port 8081)"]
+        DASH["React + Vite Dashboard\n- Live Video Feed (Zone A & B)\n- Stock & ARIMA Chart\n- Current Stock & Risk Status"]
+    end
+
+    subgraph API ["⚡ Backend Service (Port 8000)"]
+        FASTAPI["FastAPI REST Server\n- /api/forecast\n- /api/sampling\n- /api/stock\n- /api/settings\n- /api/risk"]
+    end
+
+    subgraph Queue ["📬 Broker"]
+        REDIS[("Redis 8.8 (Port 6379)\n- forecasting_queue\n- sampling_queue\n- training_queue\n- data_queue")]
+    end
+
+    subgraph Workers ["⚙️ Background Workers (ARQ)"]
+        S_WORKER["sampling-worker\n- Crop mockA.mp4 & mockB.mp4\n- Upload MinIO sampling-camera\n- Daily Cron (Disabled by default)"]
+        F_WORKER["forecasting-worker\n- YOLO Box Detection\n- Sync: box_logs ➔ daily ➔ monthly\n- ARIMA(1,1,1) Forecasting\n- Save arima_forecasts"]
+        T_WORKER["training-worker\n- ARIMA / YOLO model training"]
+        D_WORKER["data-worker\n- Market & Financial data ingestion"]
+    end
+
+    subgraph Storage ["💾 Storage & Databases"]
+        PG[("PostgreSQL 15 (Host Port 5433)\n- box_logs\n- daily_inventories\n- monthly_inventories\n- yearly_inventories\n- arima_forecasts\n- system_settings")]
+        MINIO[("MinIO S3 (Port 9000 / 9001)\n- sampling-camera (ZoneA, ZoneB)\n- models (yolo11n.pt, best.pt)\n- datasets\n- mlflow-artifacts")]
+    end
+
+    subgraph Obs ["📈 Observability Stack"]
+        GRAFANA["Grafana (Port 3000)\n- Database Explorer Dashboard\n- System Metrics & Tracing"]
+        PROM["Prometheus (9090)"]
+        OTEL["OTel Collector (4317/4318)"]
+        LOKI["Loki (3100) & Tempo (3200)"]
+    end
+
+    UI -->|HTTP Requests| FASTAPI
+    FASTAPI -->|Enqueues Job| REDIS
+    FASTAPI -->|Read / Write| PG
+    REDIS -->|Dispatches| Workers
+    S_WORKER & F_WORKER -->|Save JPEGs| MINIO
+    F_WORKER -->|Read & Update| PG
+    PG -->|Provisioned Data Source| GRAFANA
+    API -.->|Telemetry| OTEL -.-> PROM & LOKI & GRAFANA
+```
+
+---
+
+## 🔄 ลำดับการทำงานเมื่อกด Predict (Prediction Flow)
+
+เมื่อผู้ใช้กดปุ่ม **"Run Prediction"** บนหน้า Dashboard:
+1. **Trigger API**: Frontend ส่งคำขอ `POST /api/forecast` ไปยัง Backend
+2. **Queueing**: Backend ส่งงานเข้าสู่ `forecasting_queue` บน Redis
+3. **Frame Sampling & MinIO**: Worker ดึงเฟรมจากวิดีโอจำลองกล้อง `mockA.mp4` (Zone A - Cold Storage) และ `mockB.mp4` (Zone B - Processing), ครอปพื้นที่ ROI และอัปโหลดไฟล์ภาพ JPEG ไปยัง MinIO bucket `sampling-camera/ZoneA/` และ `ZoneB/`
+4. **YOLO Detection**: โมเดล Ultralytics YOLO (`yolo11n.pt`) ทำการตรวจจับและนับจำนวนกล่องของแต่ละโซน (`boxes_a`, `boxes_b`, `total_boxes`)
+5. **Database Hierarchical Sync**:
+   - บันทึกประวัติการสุ่มตรวจลงตาราง **`box_logs`**
+   - อัปเดตยอดสต็อกประจำวันลงตาราง **`daily_inventories`** สำหรับวันที่ปัจจุบัน (ป้องกันวันซ้ำด้วย UPSERT)
+   - อัปเดตยอดสต็อกประจำเดือนลงตาราง **`monthly_inventories`** ประจำเดือนปัจจุบัน
+6. **ARIMA Forecasting**: ดึงข้อมูลประวัติสต็อกรายเดือนย้อนหลังจาก `monthly_inventories` มาคำนวณโมเดล **ARIMA(1,1,1)** พยากรณ์ความต้องการสต็อก 3 เดือนล่วงหน้า
+7. **Forecast Storage**: บันทึกค่าทำนายพร้อมช่วงความเชื่อมั่น (`lower_bound`, `upper_bound`) ลงตาราง **`arima_forecasts`**
+8. **UI Live Refresh**: หน้า Dashboard โหลดข้อมูลใหม่ แสดงตัวเลขสต็อกปัจจุบันที่ตรวจจับได้จริง และอัปเดตเส้นกราฟพยากรณ์พร้อมประเมินสถานะความเสี่ยง (Risk Status) ทันที
+
+---
+
+## 🗄️ โครงสร้างฐานข้อมูลหลัก (Core Database Schema)
+
+ฐานข้อมูล PostgreSQL ประกอบด้วย 4 ตารางหลักตามสถาปัตยกรรมใหม่:
+
+| ตาราง (Table) | คอลัมน์สำคัญ | รายละเอียดหน้าที่ |
 |---|---|---|
-| **Frontend Dashboard** | [http://localhost:8081/](http://localhost:8081/) | เข้าใช้งานได้ทันที (React + Vite dev server) |
-| **Backend API & Swagger** | [http://localhost:8000/](http://localhost:8000/) / [Docs](http://localhost:8000/docs) | เอกสาร OpenAPI / Swagger UI |
-| **MinIO Web Console** | [http://localhost:9001/](http://localhost:9001/) | User: `admin` / Password: `password123` |
-| **MinIO S3 API Endpoint** | [http://localhost:9000/](http://localhost:9000/) | เข้าถึงผ่าน S3 API หรือ SDK |
-| **MLflow Tracking UI** | [http://localhost:5000/](http://localhost:5000/) | ตรวจสอบ Experiment runs และ Artifacts |
-| **Grafana Dashboards** | [http://localhost:3000/](http://localhost:3000/) | เข้าใช้งานแบบ Anonymous (ไม่ต้องล็อกอิน) |
-| **Prometheus Metrics** | [http://localhost:9090/](http://localhost:9090/) | ดูสถานะ Metrics และ Target status |
-| **Loki / Tempo** | `localhost:3100` / `localhost:3200` | Log & Distributed Trace Backends |
-| **PostgreSQL** | `localhost:5433` (พอร์ต host) | User: `admin`, Password: `secretpassword`, DB: `my_database` |
-| **Redis** | `localhost:6379` | Message broker สำหรับ ARQ Workers |
+| **`box_logs`** | `time`, `product`, `boxes_a`, `boxes_b`, `total_boxes`, `camera_id`, `image_path`, `confidence` | บันทึก Log การตรวจนับกล่องจากกล้อง/YOLO แต่ละครั้ง และจัดเก็บ path รูปภาพบน MinIO |
+| **`daily_inventories`** | `time` (Date), `product`, `boxes_a`, `boxes_b`, `total_boxes`, `inbound_boxes`, `outbound_boxes` | สรุปยอดสต็อกคงคลังรายวัน อัปเดตจากค่าตรวจจับล่าสุดของกล้อง (1 วันมี 1 Record ไม่ซ้ำ) |
+| **`monthly_inventories`** | `time` (Date: YYYY-MM-01), `product`, `boxes_a`, `boxes_b`, `total_boxes` | ยอดสต็อกคงคลังรายเดือน โดยดึงค่าจาก **วันสิ้นเดือน** ของตารางรายวัน ใช้เป็น Time-series ป้อนเข้า ARIMA |
+| **`yearly_inventories`** | `time` (Date: YYYY-01-01), `product`, `boxes_a`, `boxes_b`, `total_boxes` | ยอดสต็อกคงคลังรายปี โดยดึงค่าจาก **เดือน 12** ของแต่ละปี (2021 – 2025) |
+| **`arima_forecasts`** | `time` (Date), `product`, `total_boxes`, `lower_bound`, `upper_bound`, `model_order` | ผลการทำนายปริมาณสต็อกในอนาคต 3 เดือนล่วงหน้า พร้อมค่า Lower/Upper Bound |
+| **`system_settings`** | `key`, `value`, `description` | ค่าคอนฟิกของระบบ เช่น `risk_preference`, `low_stock_threshold`, `forecast_horizon` |
 
 ---
 
-### คำสั่งจัดการระบบที่ใช้งานบ่อย (Useful Commands)
+## 🚀 วิธีการ Clone และรันโปรเจกต์ให้สมบูรณ์ (Getting Started)
+
+### 1. ข้อกำหนดเบื้องต้น (Prerequisites)
+- [Git](https://git-scm.com/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (แนะนำ RAM อย่างน้อย 4 GB - 6 GB ขึ้นไป)
+
+### 2. ขั้นตอนการติดตั้งและเริ่มระบบ (Setup & Run)
+
+#### ขั้นตอนที่ 1: Clone Repository
+```bash
+git clone <repository-url>
+cd I_LoveSeafood
+```
+
+#### ขั้นตอนที่ 2: เตรียมไฟล์ Environment Variables
+```bash
+# บน Windows (PowerShell):
+copy .env.example .env
+
+# บน Linux / macOS:
+cp .env.example .env
+```
+
+#### ขั้นตอนที่ 3: สั่งรัน Container ทั้งหมดด้วย Docker Compose
+```bash
+docker compose up -d --build
+```
+> ระบบจะทำการ:
+> 1. สตาร์ท PostgreSQL 15, Redis 8.8, MinIO
+> 2. สตาร์ท `minio-init` เพื่อสร้าง Bucket เริ่มต้นให้อัตโนมัติ (`sampling-camera`, `models`, `datasets`, `mlflow-artifacts`, `ai-ecosystem-data`)
+> 3. สตาร์ท Backend, Background Workers, Observability Services และ Frontend (Vite)
+
+#### ขั้นตอนที่ 4: เตรียมข้อมูลและ Seed ฐานข้อมูลให้สมบูรณ์ (Database Initialization)
+รันสคริปต์เพื่อสร้าง/อัปเดตข้อมูลย้อนหลัง 6 ปี (2021 ถึง 4 ต.ค. 2026 เวลา 23:00 น.) เข้าสู่ 4 ตารางหลัก:
+```bash
+# รันผ่าน Backend Container โดยตรง:
+docker compose exec backend python /workers/adjust_database_data.py
+```
+*คำสั่งนี้จะทำการนำเข้าข้อมูล `daily_inventories` จากไฟล์ CSV, ซิงค์ยอดสิ้นเดือนเข้า `monthly_inventories`, ยอดเดือน 12 เข้า `yearly_inventories` และเตรียมค่าใน `box_logs` ให้พร้อมทำงานทันที*
+
+#### ขั้นตอนที่ 5: ตรวจสอบความพร้อมของระบบ (Health Check)
+```bash
+# ตรวจสอบสถานะการเชื่อมต่อ Database, Redis, MinIO:
+curl http://localhost:8000/health
+```
+ผลลัพธ์ต้องแสดง `"status": "healthy"` และทุกบริการเป็น `"connected"`
+
+---
+
+## 🌐 พอร์ตและการเข้าใช้งานบริการ (Service Endpoints)
+
+| บริการ (Service) | URL | ข้อมูลการเข้าใช้งาน (Credentials) | รายละเอียด |
+|---|---|---|---|
+| **Frontend Dashboard** | [http://localhost:8081](http://localhost:8081) | ไม่ต้องล็อกอิน | หน้าหลักแสดงสต็อก, วิดีโอกล้องสด, กราฟ และปุ่ม Run Prediction |
+| **Backend API (Swagger)** | [http://localhost:8000/docs](http://localhost:8000/docs) | ไม่ต้องล็อกอิน | เอกสาร API และเครื่องมือทดสอบ Interactive OpenAPI |
+| **MinIO Web Console** | [http://localhost:9001](http://localhost:9001) | User: `admin`<br>Password: `password123` | จัดการ Bucket, ตรวจดูภาพที่แคปจากกล้องใน `sampling-camera` |
+| **MinIO S3 API** | `http://localhost:9000` | Access Key: `admin`<br>Secret: `password123` | S3 API สำหรับ Workers และ Backend |
+| **Grafana Dashboards** | [http://localhost:3000](http://localhost:3000) | Anonymous Access (ไม่ต้องล็อกอิน) | แดชบอร์ด **Database Explorer** ดูข้อมูล 4 ตารางสดจาก Postgres |
+| **MLflow Tracking** | [http://localhost:5000](http://localhost:5000) | ไม่ต้องล็อกอิน | ตรวจสอบโมเดลพยากรณ์และ Experiment Artifacts |
+| **Prometheus Metrics** | [http://localhost:9090](http://localhost:9090) | ไม่ต้องล็อกอิน | ตรวจสอบ Metrics ของระบบ |
+| **PostgreSQL** | `localhost:5433` (พอร์ต Host) | User: `admin`<br>Password: `secretpassword`<br>DB: `my_database` | เข้าถึงผ่าน DBeaver, DataGrip หรือ `psql` |
+| **Redis** | `localhost:6379` | ไม่มีรหัสผ่าน | Broker คิวงานของ ARQ Workers |
+
+---
+
+## 📡 สรุป API Endpoints สำคัญ
+
+| Method | Endpoint | รายละเอียดหน้าที่ |
+|---|---|---|
+| `GET` | `/health` | ตรวจสอบสถานะการเชื่อมต่อ PostgreSQL, Redis และ MinIO |
+| `POST` | `/api/forecast` | จัดคิวเริ่มงานพยากรณ์ (จะรัน Sampling + YOLO + Sync DB + ARIMA ให้อัตโนมัติ) |
+| `GET` | `/api/forecast/{job_id}` | ตรวจสอบสถานะและผลลัพธ์ของ Job พยากรณ์ |
+| `GET` | `/api/forecast/latest?product=...` | ดึงผลการพยากรณ์ ARIMA ล่าสุดจากตาราง `arima_forecasts` |
+| `POST` | `/api/sampling/capture` | สั่งแคปภาพจากกล้อง, รัน YOLO และบันทึกเข้า MinIO / DB ทันทีแบบ Manual |
+| `GET` | `/api/sampling/status` | ดูสถานะ Bucket `sampling-camera` และสถานะ Daily Schedule |
+| `GET` | `/api/sampling/logs` | ดึงรายการล่าสุดจากตาราง `box_logs` |
+| `GET` | `/api/stock/summary` | ดูภาพรวมปริมาณสต็อกปัจจุบัน ยอดเฉลี่ย ต่ำสุด สูงสุด |
+| `GET` | `/api/stock/history?product=...` | ดึงข้อมูลประวัติสต็อกรายเดือนจาก `monthly_inventories` ไปแสดงกราฟ |
+| `GET` | `/api/settings` / `PUT /api/settings` | อ่านและแก้ไขการตั้งค่าระบบ (`risk_preference`, `low_stock_threshold`) |
+| `POST` | `/api/risk/evaluate` | ประเมินความเสี่ยงสต็อกขาด/ล้นตามเกณฑ์ Threshold ที่กำหนด |
+
+---
+
+## 🛠️ คำสั่งการจัดการระบบ (Useful Commands)
 
 ```bash
-# ดู Log ของบริการหลักแบบเรียลไทม์
-docker compose logs -f backend frontend forecasting-worker
+# ดู Log การทำงานของ Backend, Workers และ Frontend พร้อมกัน
+docker compose logs -f backend forecasting-worker sampling-worker
 
-# ดู Log เฉพาะ worker งานนำเข้าข้อมูล (Data Ingestion)
-docker compose logs -f data-worker
+# ดู Log เฉพาะตอนกดรัน Predict
+docker compose logs -f forecasting-worker
 
-# รีสตาร์ทเฉพาะบริการที่ต้องการหลังแก้ไขคอนฟิก
-docker compose restart forecasting-worker data-worker
+# สั่งรัน Daily Sampling Manual ผ่าน CLI
+docker compose exec sampling-worker python -c "import asyncio; from sampling_worker.sampler import sample_camera_frames; asyncio.run(sample_camera_frames())"
 
-# หยุดการทำงานชั่วคราว (ไม่ลบข้อมูลและ Container)
+# หยุดระบบชั่วคราว (รักษาข้อมูลใน Database และ MinIO ไว้)
 docker compose stop
 
-# ปิดระบบและลบคอนเทนเนอร์ (ข้อมูลใน Named Volumes ยังถูกเก็บรักษาไว้)
+# ปิดระบบทั้งหมด
 docker compose down
 
-# ล้างระบบและคืนพื้นที่ทั้งหมดรวมถึงข้อมูลในฐานข้อมูล/MinIO (Clean Slate)
+# ล้างระบบและลบ Named Volumes ทั้งหมด (เริ่มต้นใหม่จากศูนย์)
 docker compose down -v
 ```
-
-> [!TIP]
-> **โหมด Production (Nginx Frontend):**
-> หากต้องการรันระบบแบบ Production โดยไม่ใช้ Vite dev server ให้รันด้วยคำสั่ง:
-> ```bash
-> docker compose -f compose.yml up -d --build
-> ```
-
-## API ที่ใช้งานจาก Dashboard
-
-ทุก endpoint ในตารางยกเว้น health check มี prefix `/api`:
-
-| Endpoint | หน้าที่ |
-|---|---|
-| `GET /health` | ตรวจสถานะ database, Redis และ MinIO |
-| `GET /stock/summary` | ภาพรวม stock |
-| `GET /stock/history?product=...` | ประวัติ stock สำหรับกราฟ |
-| `GET /forecast/latest?product=...` | forecast ล่าสุดที่บันทึกไว้ |
-| `POST /forecast` | enqueue งาน forecast |
-| `POST /forecast/train` | enqueue งานฝึกโมเดล |
-| `GET /forecast/{job_id}` | ตรวจสถานะ/อ่านผลของงาน |
-| `GET /settings`, `PUT /settings` | อ่าน/บันทึกค่าตั้งค่า |
-| `POST /risk/evaluate` | ประเมินระดับความเสี่ยงจาก stock, forecast และ threshold |
-
-มี endpoint stock เพิ่มเติม เช่น `/stock`, `/stock/products`, `/stock/upload` รวมถึง inventory routes แต่บาง endpoint ไม่มีปุ่ม/หน้าจอเรียกใช้ใน Dashboard ปัจจุบัน ดูรายการ routes ที่แน่นอนจาก Swagger UI
-
-## การใส่คำอธิบายใน source
-
-ไฟล์ source, scripts และ configuration ที่รองรับ comment มีคำอธิบายหน้าที่และส่วนสำคัญในรูปแบบที่ภาษานั้นรองรับแล้ว ไฟล์ machine-readable ที่ไม่รองรับ comment (เช่น JSON lockfile และ Grafana dashboard JSON) อธิบายไว้ในเอกสารแทน ไฟล์ dependencies, generated artifacts, local data, caches และ binaries ถูกยกเว้น

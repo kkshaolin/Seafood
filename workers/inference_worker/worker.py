@@ -44,6 +44,22 @@ async def run_forecast_task(ctx, req_data: dict) -> dict:
     job_id = ctx.get("job_id", "unknown")
     logger.info(f"Starting forecast job {job_id}")
     
+    # 1. Trigger YOLO Camera Sampling & Inventory Sync (box_logs -> daily_inventories -> monthly_inventories)
+    try:
+        from sampling_worker.sampler import sample_camera_frames
+        logger.info("Executing YOLO camera sampling & inventory sync before forecasting...")
+        sample_res = await sample_camera_frames(crop=True, record_db=True)
+        logger.info(
+            "YOLO Sampling complete: ZoneA=%s, ZoneB=%s, Total=%s (bucket: %s)",
+            sample_res.get("boxes_A"),
+            sample_res.get("boxes_B"),
+            sample_res.get("total_boxes"),
+            sample_res.get("bucket"),
+        )
+    except Exception as e_samp:
+        logger.warning("Camera sampling in forecast task failed: %s", e_samp, exc_info=True)
+
+    # 2. Proceed with ARIMA Forecasting
     try:
         req = ForecastRequest(**req_data)
         async with SessionLocal() as session:

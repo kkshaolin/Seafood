@@ -29,8 +29,9 @@ services:
     networks:
       - ai-network
 
-  # PostgreSQL เก็บข้อมูล stock, settings, forecast และข้อมูลที่ได้จาก ingestion
+  # PostgreSQL ภายในเครื่อง (เปิดใช้เฉพาะเมื่อต้องการรันฐานข้อมูล local: docker compose --profile local-db up -d)
   postgres:                           # เข้า shell ได้ด้วย docker compose exec postgres psql -U admin -d my_database
+    profiles: ["local-db"]
     image: postgres:15-alpine         # ใช้ PostgreSQL 15 เป็นฐานข้อมูลหลักของระบบ
     restart: unless-stopped
     environment:                      # กำหนดบัญชีและฐานข้อมูลเริ่มต้นสำหรับ local development
@@ -63,22 +64,19 @@ services:
     command: ["python", "/workers/seed_inventory.py"]
     restart: "no"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
       - STORAGE_ROOT=/app/storage
       - BACKEND_SRC=/app/src
     volumes:
       - ./workers:/workers:ro
       - ./backend/src:/app/src:ro
       - ./storage:/app/storage
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - ai-network
 
   # MinIO เก็บไฟล์ผ่าน API ที่เข้ากันได้กับ S3 เช่น dataset และ model artifacts
   minio:
-    image: bitnami/minio:latest #minio/minio:latest
+    image: minio/minio:latest
     user: "0"
     ports: 
       - "9000:9000"       # พอร์ต 9000 เปิด S3 API ให้ backend/workers อ่านและเขียน object
@@ -105,7 +103,7 @@ services:
 
   # สร้าง Buckets เริ่มต้นใน MinIO ให้พร้อมใช้โดยอัตโนมัติ
   minio-init:
-    image: bitnami/minio:latest #minio/minio:latest
+    image: minio/minio:latest
     depends_on:
       minio:
         condition: service_healthy
@@ -116,6 +114,7 @@ services:
       mc mb --ignore-existing local/datasets;
       mc mb --ignore-existing local/models;
       mc mb --ignore-existing local/ai-ecosystem-data;
+      mc mb --ignore-existing local/sampling-camera;
       exit 0;
       "
     networks:
@@ -129,10 +128,11 @@ services:
       dockerfile: Dockerfile
     image: i_loveseafood-backend:latest
     restart: unless-stopped
+    command: ["python", "src/main.py"]
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
       - REDIS_URL=redis://redis:6379
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
@@ -148,8 +148,6 @@ services:
       - ./storage/logs:/app/logs
     depends_on:
       redis:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
       inventory-seed:
         condition: service_completed_successfully
@@ -184,7 +182,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
     volumes:
@@ -193,8 +191,6 @@ services:
       - ./backend/src:/backend/src
     depends_on:
       redis:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
       inventory-seed:
         condition: service_completed_successfully
@@ -214,6 +210,54 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # ตัดครอปรูปจากกล้อง 2 ตัว (mockA.mp4, mockB.mp4) เก็บลง MinIO bucket sampling-camera/ZoneA และ /ZoneB
+  # พร้อมระบบงานอัตโนมัติรายวัน (ตั้งค่าปิดไว้เป็นค่าเริ่มต้น DAILY_SAMPLING_ENABLED=false)
+  # และทำงานทันทีเมื่อได้รับคำสั่ง predict จากหน้าเว็บ
+  sampling-worker:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: i_loveseafood-backend:latest
+    command: ["python", "-m", "arq", "sampling_worker.worker.WorkerSettings"]
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=admin
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
+      - MINIO_SECURE=false
+      - DAILY_SAMPLING_ENABLED=false
+      - STORAGE_ROOT=/app/storage
+    volumes:
+      - ./storage:/app/storage
+      - ./workers:/app
+      - ./backend/src:/backend/src
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py", "sampling_worker.worker.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - ai-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
   # ฝึกโมเดลแยกจาก API เพื่อไม่ให้งานคำนวณหนักขัดขวางคำขอจากหน้าเว็บ
   # รองรับทั้ง ARIMA (ดึงข้อมูลจาก PostgreSQL) และ YOLO (ดาวน์โหลด Dataset จาก MinIO)
   training-worker:
@@ -228,7 +272,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
       - MINIO_ENDPOINT=minio:9000
@@ -241,8 +285,6 @@ services:
       - ./backend/src:/backend/src
     depends_on:
       redis:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
       inventory-seed:
         condition: service_completed_successfully
@@ -280,7 +322,7 @@ services:
     environment:
       - TZ=Asia/Bangkok               # cron ใน data_worker.py อิงเวลานี้
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql+asyncpg://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
@@ -326,12 +368,10 @@ services:
       - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
     command: >
       mlflow server
-      --backend-store-uri postgresql://admin:secretpassword@postgres:5432/my_database
+      --backend-store-uri ${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
       --default-artifact-root s3://mlflow-artifacts
       --host 0.0.0.0
     depends_on:
-      postgres:
-        condition: service_started
       minio:
         condition: service_healthy
       minio-init:

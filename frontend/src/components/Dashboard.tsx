@@ -162,6 +162,7 @@ export const Dashboard = () => {
           if (statusRes.status === 'completed') {
             clearInterval(poll);
             setForecastData(statusRes.result);
+            await loadDashboardData();
             setLoading(false);
             setStatusMsg('');
           } else if (statusRes.status === 'failed') {
