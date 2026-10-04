@@ -16,7 +16,7 @@ from models.stock import InventorySummary
 
 logger = logging.getLogger("inference_worker.yolo")
 
-DATASET_BUCKET = "datasets"
+DATASET_BUCKET = "bitgat sampling-camera"
 MODEL_BUCKET = "models"
 
 
