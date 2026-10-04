@@ -149,7 +149,7 @@ async def run_import():
     count_m = await conn.fetchval("SELECT COUNT(*) FROM monthly_inventories;")
     print(f"-> monthly_inventories now has {count_m} rows.")
 
-    # 2. Load Daily CSV
+# 2. Load Daily CSV
     if not DAILY_CSV.exists():
         print(f"Error: Daily CSV not found at {DAILY_CSV}")
         return
@@ -166,15 +166,17 @@ async def run_import():
                 r["product"].strip(),
                 int(r["boxes_A"]),
                 int(r["boxes_B"]),
-                int(r["total_boxes"])
+                int(r["total_boxes"]),
+                0,  # กำหนดค่า inbound_boxes เป็น 0
+                0   # กำหนดค่า outbound_boxes เป็น 0
             ))
 
     print(f"Found {len(daily_rows)} daily rows. Inserting into daily_inventories...")
     await conn.execute("TRUNCATE TABLE daily_inventories RESTART IDENTITY;")
     await conn.executemany(
         """
-        INSERT INTO daily_inventories (time, product, boxes_A, boxes_B, total_boxes)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO daily_inventories (time, product, boxes_A, boxes_B, total_boxes, inbound_boxes, outbound_boxes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (time, product) DO UPDATE SET
             boxes_A = EXCLUDED.boxes_A,
             boxes_B = EXCLUDED.boxes_B,

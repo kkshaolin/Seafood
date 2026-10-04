@@ -89,16 +89,20 @@ def _upload_bytes(client: Minio, bucket: str, key: str, data: bytes,
 def _download_and_extract_dataset(client: Minio, dataset_name: str,
                                    work_dir: str) -> str:
     """
-    ดาวน์โหลด ZIP Dataset จาก MinIO แล้วแตกไฟล์ คืน path ของโฟลเดอร์ Dataset
-
-    Dataset ZIP ควรมีโครงสร้างภายใน:
-        images/train/  *.jpg
-        images/val/    *.jpg
-        labels/train/  *.txt  (YOLO format)
-        labels/val/    *.txt
-
-    หากไม่มีไฟล์ ZIP ใน MinIO จะใช้ dummy dataset เพื่อให้ทดสอบได้
+    ตรวจสอบโฟลเดอร์ Local ก่อน หากพบ Dataset ในเครื่องให้ใช้ path นั้นทันที
     """
+    # ตรวจสอบ path ในเครื่อง (รองรับทั้งรันผ่าน Docker และรัน local)
+    local_paths = [
+        f"/app/storage/data/{dataset_name}",
+        f"./storage/data/{dataset_name}"
+    ]
+    
+    for path in local_paths:
+        if os.path.exists(path) and os.path.isdir(path):
+            logger.info("Using local dataset found at: %s", path)
+            return path
+
+    # หากไม่มีในเครื่อง ให้ดาวน์โหลดจาก MinIO ตามปกติ
     zip_key = f"yolo/{dataset_name}/{dataset_name}.zip"
     zip_path = os.path.join(work_dir, f"{dataset_name}.zip")
     dataset_dir = os.path.join(work_dir, "dataset")
@@ -111,14 +115,33 @@ def _download_and_extract_dataset(client: Minio, dataset_name: str,
     except S3Error as e:
         if e.code in ("NoSuchKey", "NoSuchObject", "NotFound", "NoSuchBucket"):
             logger.warning(
-                "Dataset ZIP not found at MinIO %s/%s (code=%s) — creating dummy dataset for smoke-test",
-                DATASET_BUCKET, zip_key, e.code
+                "Dataset ZIP not found at MinIO %s/%s — creating dummy dataset for smoke-test",
+                DATASET_BUCKET, zip_key
             )
             _create_dummy_dataset(dataset_dir)
         else:
             raise
 
     return dataset_dir
+
+
+def _write_dataset_yaml(dataset_dir: str, class_names: list[str]) -> str:
+    """สร้างไฟล์ dataset.yaml สำหรับ Ultralytics YOLO ให้ตรงกับโครงสร้าง train/images และ valid/images."""
+    yaml_path = os.path.join(dataset_dir, "dataset.yaml")
+    
+    # โครงสร้างจริงของ Dataset จากภาพ คือ train/images และ valid/images
+    lines = [
+        f"path: {dataset_dir}",
+        "train: train/images",
+        "val: valid/images",
+        f"nc: {len(class_names)}",
+        "names: " + str(class_names),
+        "",
+    ]
+    with open(yaml_path, "w") as f:
+        f.write("\n".join(lines))
+    logger.info("dataset.yaml written to %s", yaml_path)
+    return yaml_path
 
 
 def _create_dummy_dataset(dataset_dir: str) -> None:
@@ -151,29 +174,6 @@ def _create_dummy_dataset(dataset_dir: str) -> None:
         raise
 
 
-def _write_dataset_yaml(dataset_dir: str, class_names: list[str]) -> str:
-    """สร้างไฟล์ dataset.yaml สำหรับ Ultralytics YOLO."""
-    yaml_path = os.path.join(dataset_dir, "dataset.yaml")
-    content = {
-        "path": dataset_dir,
-        "train": "images/train",
-        "val": "images/val",
-        "nc": len(class_names),
-        "names": class_names,
-    }
-    # เขียนแบบ manual เพื่อไม่ต้อง import yaml
-    lines = [
-        f"path: {dataset_dir}",
-        "train: images/train",
-        "val: images/val",
-        f"nc: {len(class_names)}",
-        "names: " + str(class_names),
-        "",
-    ]
-    with open(yaml_path, "w") as f:
-        f.write("\n".join(lines))
-    logger.info("dataset.yaml written to %s", yaml_path)
-    return yaml_path
 
 
 def _get_base_model(client: Minio, work_dir: str) -> str:
