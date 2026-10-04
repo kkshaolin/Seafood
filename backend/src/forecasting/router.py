@@ -10,7 +10,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from arq.jobs import Job, JobStatus
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_
 
 from core.config import settings
 from forecasting.schemas import (
@@ -19,7 +19,7 @@ from forecasting.schemas import (
     YoloTrainRequest, TrainJobResponse,
 )
 from db.database import get_db_session
-from models.stock import ForecastResult
+from models.stock import ArimaForecast, ForecastResult
 
 router = APIRouter(prefix="/forecast", tags=["forecast"])
 
@@ -32,37 +32,69 @@ async def get_latest_forecast(
     session: AsyncSession = Depends(get_db_session)
 ):
     try:
-        stmt = select(ForecastResult).where(ForecastResult.product == product).order_by(desc(ForecastResult.created_at), ForecastResult.forecast_date)
+        from datetime import timedelta
+        # 1. Query new table: arima_forecasts
+        stmt = (
+            select(ArimaForecast)
+            .where(or_(ArimaForecast.product == product, ArimaForecast.product == "Frozen Shrimp"))
+            .order_by(desc(ArimaForecast.created_at), ArimaForecast.time)
+        )
         result = await session.execute(stmt)
         records = result.scalars().all()
         
-        if not records:
+        if records:
+            latest_created_at = records[0].created_at
+            cutoff = latest_created_at - timedelta(seconds=60)
+            latest_records = [r for r in records if r.created_at >= cutoff]
+            latest_records.sort(key=lambda x: x.time)
+            points = [
+                ForecastDataPoint(
+                    date=r.time,
+                    predicted_value=r.total_boxes,
+                    lower_bound=r.lower_bound,
+                    upper_bound=r.upper_bound
+                )
+                for r in latest_records
+            ]
+            return ForecastResponse(
+                product=product,
+                model_name=latest_records[0].model_order or "ARIMA",
+                metrics=ForecastMetrics(mae=0, rmse=0, mape=0),
+                forecast=points,
+                model_uri=None
+            )
+
+        # 2. Fallback to old table: forecast_results
+        stmt_old = (
+            select(ForecastResult)
+            .where(or_(ForecastResult.product == product, ForecastResult.product == "Frozen Shrimp"))
+            .order_by(desc(ForecastResult.created_at), ForecastResult.forecast_date)
+        )
+        result_old = await session.execute(stmt_old)
+        records_old = result_old.scalars().all()
+        
+        if not records_old:
             raise HTTPException(status_code=404, detail="No forecast found for this product")
             
-        # Group by the latest created_at timestamp using a 60-second window
-        from datetime import timedelta
-        latest_created_at = records[0].created_at
+        latest_created_at = records_old[0].created_at
         cutoff = latest_created_at - timedelta(seconds=60)
-        latest_records = [r for r in records if r.created_at >= cutoff]
-        
-        # Sort chronologically
-        latest_records.sort(key=lambda x: x.forecast_date)
-        
-        points = []
-        for r in latest_records:
-            points.append(ForecastDataPoint(
+        latest_records_old = [r for r in records_old if r.created_at >= cutoff]
+        latest_records_old.sort(key=lambda x: x.forecast_date)
+        points = [
+            ForecastDataPoint(
                 date=r.forecast_date,
                 predicted_value=r.predicted_value,
                 lower_bound=r.lower_bound,
                 upper_bound=r.upper_bound
-            ))
-            
+            )
+            for r in latest_records_old
+        ]
         return ForecastResponse(
             product=product,
-            model_name=latest_records[0].model_name,
-            metrics=ForecastMetrics(mae=0, rmse=0, mape=0), # Can't fetch metrics from DB easily without a separate table, hardcode to 0 for display
+            model_name=latest_records_old[0].model_name,
+            metrics=ForecastMetrics(mae=0, rmse=0, mape=0),
             forecast=points,
-            model_uri=latest_records[0].model_version
+            model_uri=latest_records_old[0].model_version
         )
     except HTTPException:
         raise

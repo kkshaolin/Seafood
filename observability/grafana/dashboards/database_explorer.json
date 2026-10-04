@@ -33,11 +33,11 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT * FROM inventory_summaries ORDER BY date DESC LIMIT 100;",
+          "rawSql": "SELECT time, product, boxes_a, boxes_b, total_boxes, created_at FROM monthly_inventories ORDER BY time ASC;",
           "refId": "A"
         }
       ],
-      "title": "Inventory Summaries Data (Latest 100)",
+      "title": "Monthly Inventories (ข้อมูลรายเดือน 6 ปี - 72 แถว)",
       "type": "table"
     },
     {
@@ -64,12 +64,52 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT * FROM forecast_results ORDER BY created_at DESC LIMIT 100;",
+          "rawSql": "SELECT time, product, boxes_a, boxes_b, total_boxes, created_at FROM yearly_inventories ORDER BY time ASC;",
           "refId": "A"
         }
       ],
-      "title": "Forecast Results (Latest 100)",
+      "title": "Yearly Inventories (ข้อมูลรายปี 2021-2026 - 6 แถว)",
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time as \"time\", boxes_a as \"Zone A\", boxes_b as \"Zone B\", total_boxes as \"Total\" FROM monthly_inventories ORDER BY time ASC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Monthly Stock Trend (แนวโน้มสต็อกรายเดือน: Zone A vs Zone B vs Total)",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -80,38 +120,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
-      },
-      "id": 3,
-      "options": {
-        "showHeader": true
-      },
-      "pluginVersion": "11.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT * FROM camera_logs ORDER BY captured_at DESC LIMIT 100;",
-          "refId": "A"
-        }
-      ],
-      "title": "Camera Logs (Latest 100)",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
+        "y": 16
       },
       "id": 4,
       "options": {
@@ -126,28 +135,90 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT * FROM system_settings;",
+          "rawSql": "SELECT time, product, boxes_a, boxes_b, total_boxes, inbound_boxes, outbound_boxes, created_at FROM daily_inventories ORDER BY time DESC LIMIT 100;",
           "refId": "A"
         }
       ],
-      "title": "System Settings",
+      "title": "Daily Inventories (ข้อมูลรายวัน - ล่าสุด 100 วันจาก 2,191 แถว)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "11.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT * FROM box_logs ORDER BY time DESC LIMIT 50;",
+          "refId": "A"
+        }
+      ],
+      "title": "Box Detection Logs (ค่าจากกล่อง - ว่างไว้)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "11.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT * FROM arima_forecasts ORDER BY time ASC;",
+          "refId": "A"
+        }
+      ],
+      "title": "ARIMA Forecasts (ผลทำนาย ARIMA - ว่างไว้)",
       "type": "table"
     }
   ],
-  "refresh": "1m",
+  "refresh": "10s",
   "schemaVersion": 39,
-  "tags": [],
+  "tags": ["database", "inventory", "seafood"],
   "templating": {
     "list": []
   },
   "time": {
-    "from": "now-6h",
+    "from": "now-6y",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "Database Explorer",
   "uid": "database-explorer",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

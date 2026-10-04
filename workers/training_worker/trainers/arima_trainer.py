@@ -79,25 +79,69 @@ def _make_session_factory(database_url: str):
 
 
 async def _fetch_inventory_summaries(session: AsyncSession) -> pd.DataFrame:
-    """ดึงข้อมูล inventory ทั้งหมดจาก PostgreSQL เรียงตามเวลา."""
+    """ดึงข้อมูล inventory ทั้งหมดจาก monthly_inventories (หรือ fallback daily/summaries)."""
     stmt = text("""
+        SELECT time as recorded_at, total_boxes as quantity
+        FROM monthly_inventories
+        ORDER BY time ASC
+    """)
+    result = await session.execute(stmt)
+    rows = result.fetchall()
+    if rows:
+        df = pd.DataFrame(rows, columns=["recorded_at", "quantity"])
+        df["recorded_at"] = pd.to_datetime(df["recorded_at"], utc=True)
+        df["quantity"] = df["quantity"].astype(float)
+        return df
+
+    # Fallback to daily_inventories
+    stmt_d = text("""
+        SELECT time as recorded_at, total_boxes as quantity
+        FROM daily_inventories
+        ORDER BY time ASC
+    """)
+    res_d = await session.execute(stmt_d)
+    rows_d = res_d.fetchall()
+    if rows_d:
+        df = pd.DataFrame(rows_d, columns=["recorded_at", "quantity"])
+        df["recorded_at"] = pd.to_datetime(df["recorded_at"], utc=True)
+        df["quantity"] = df["quantity"].astype(float)
+        return df
+
+    # Fallback to legacy inventory_summaries
+    stmt_old = text("""
         SELECT date as recorded_at, total_boxes as quantity
         FROM inventory_summaries
         ORDER BY date ASC
     """)
-    result = await session.execute(stmt)
-    rows = result.fetchall()
-    if not rows:
-        return pd.DataFrame(columns=["recorded_at", "quantity"])
-    df = pd.DataFrame(rows, columns=["recorded_at", "quantity"])
-    df["recorded_at"] = pd.to_datetime(df["recorded_at"], utc=True)
-    df["quantity"] = df["quantity"].astype(float)
-    return df
+    res_old = await session.execute(stmt_old)
+    rows_old = res_old.fetchall()
+    if rows_old:
+        df = pd.DataFrame(rows_old, columns=["recorded_at", "quantity"])
+        df["recorded_at"] = pd.to_datetime(df["recorded_at"], utc=True)
+        df["quantity"] = df["quantity"].astype(float)
+        return df
+
+    return pd.DataFrame(columns=["recorded_at", "quantity"])
 
 
 async def _fetch_camera_exog(session: AsyncSession) -> pd.DataFrame:
-    """ดึง detected_count รายวันจาก camera_logs เพื่อใช้เป็น exogenous variable."""
+    """ดึง detected_count รายเดือนจาก box_logs หรือ camera_logs เพื่อใช้เป็น exogenous variable."""
     stmt = text("""
+        SELECT date_trunc('month', time AT TIME ZONE 'UTC') AS month,
+               AVG(total_boxes) AS detected_stock
+        FROM box_logs
+        GROUP BY 1
+        ORDER BY 1 ASC
+    """)
+    result = await session.execute(stmt)
+    rows = result.fetchall()
+    if rows:
+        df = pd.DataFrame(rows, columns=["recorded_at", "detected_stock"])
+        df["recorded_at"] = pd.to_datetime(df["recorded_at"], utc=True)
+        return df
+
+    # Fallback to legacy camera_logs
+    stmt_old = text("""
         SELECT date_trunc('month', captured_at AT TIME ZONE 'UTC') AS month,
                AVG(detected_count) AS detected_stock
         FROM camera_logs
@@ -105,13 +149,14 @@ async def _fetch_camera_exog(session: AsyncSession) -> pd.DataFrame:
         GROUP BY 1
         ORDER BY 1 ASC
     """)
-    result = await session.execute(stmt)
-    rows = result.fetchall()
-    if not rows:
-        return pd.DataFrame(columns=["recorded_at", "detected_stock"])
-    df = pd.DataFrame(rows, columns=["recorded_at", "detected_stock"])
-    df["recorded_at"] = pd.to_datetime(df["recorded_at"], utc=True)
-    return df
+    res_old = await session.execute(stmt_old)
+    rows_old = res_old.fetchall()
+    if rows_old:
+        df = pd.DataFrame(rows_old, columns=["recorded_at", "detected_stock"])
+        df["recorded_at"] = pd.to_datetime(df["recorded_at"], utc=True)
+        return df
+
+    return pd.DataFrame(columns=["recorded_at", "detected_stock"])
 
 
 # ---------------------------------------------------------------------------

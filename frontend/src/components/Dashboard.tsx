@@ -16,6 +16,13 @@ import { queueForecast, getForecastJobStatus, queueTraining, getLatestForecast }
 import { getSettings, updateSettings } from '../api/settings';
 import { evaluateRisk } from '../api/risk';
 
+type CameraId = 'cam_main' | 'cam_dock';
+
+const CAMERA_SOURCES: Record<CameraId, { label: string; src: string }> = {
+  cam_main: { label: 'Zone A (Cold Storage)', src: '/mockA.mp4' },
+  cam_dock: { label: 'Zone B (Processing)', src: '/mockB.mp4' },
+};
+
 export const Dashboard = () => {
   // ใช้ควบคุมสถานะกำลังทำงานและข้อความที่แสดงใน loading overlay
   const [loading, setLoading] = useState(false);
@@ -24,7 +31,8 @@ export const Dashboard = () => {
   // กำหนดสินค้าเริ่มต้น รวมถึงช่วงเวลาพยากรณ์และกล้องที่เลือก
   const PRODUCT_NAME = "Premium_White_Shrimp";
   const [horizon, setHorizon] = useState(3);
-  const [cameraId, setCameraId] = useState('cam_main');
+  const [cameraId, setCameraId] = useState<CameraId>('cam_main');
+  const [cameraVideoError, setCameraVideoError] = useState(false);
   
   // เก็บข้อมูลจาก API เพื่อให้ส่วนแสดงผลอัปเดตตามข้อมูลล่าสุด
   // summary, cameraLog และ cameraHistory ถูกโหลดไว้ แต่ยังไม่ได้ใช้แสดงผลใน UI ปัจจุบัน
@@ -38,9 +46,6 @@ export const Dashboard = () => {
   const [settings, setSettings] = useState<any>({});
   const [showSettings, setShowSettings] = useState(false);
   const [riskData, setRiskData] = useState<any>(null);
-
-  // ค่า prototype สำหรับโหมดกล้องจริง; ตอนนี้ไม่มีปุ่มเปลี่ยนค่านี้ จึงยังเข้า branch สตรีมจริงไม่ได้
-  const [isLiveCamera, setIsLiveCamera] = useState(false);
 
   // โหลดข้อมูลทั้งหมดที่หน้า Dashboard ต้องใช้จาก API
   const loadDashboardData = async () => {
@@ -103,6 +108,10 @@ export const Dashboard = () => {
   // โหลดชุดข้อมูลครั้งแรก และโหลดข้อมูลกล้องใหม่เมื่อผู้ใช้เปลี่ยนแหล่งกล้อง
   useEffect(() => {
     loadDashboardData();
+  }, [cameraId]);
+
+  useEffect(() => {
+    setCameraVideoError(false);
   }, [cameraId]);
 
   // คำนวณความเสี่ยงใหม่เมื่อประวัติสต็อก ผลพยากรณ์ หรือค่าตั้งค่าที่เกี่ยวข้องเปลี่ยน
@@ -300,7 +309,7 @@ export const Dashboard = () => {
             {/* เปลี่ยน cameraId เพื่อทดลองเลือกกล้อง; API ของกล้องยังไม่พร้อมใน backend ปัจจุบัน */}
             <select 
               value={cameraId}
-              onChange={(e) => setCameraId(e.target.value)}
+              onChange={(e) => setCameraId(e.target.value as CameraId)}
               className="w-full p-2 border rounded text-gray-700 bg-white"
             >
               <option value="cam_main">Cam-Main (Zone A)</option>
@@ -419,9 +428,9 @@ export const Dashboard = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
             {/* คอลัมน์กราฟและข้อมูลโมเดล */}
-            <div className="col-span-2 space-y-6">
+            <div className="space-y-6">
               {/* กราฟแสดงประวัติจริงและค่าพยากรณ์พร้อมขอบเขตค่าต่ำ/สูง */}
               <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -480,8 +489,8 @@ export const Dashboard = () => {
             </div>
 
             {/* คอลัมน์ที่ 3: ส่วนแสดงภาพจากกล้อง */}
-            <div className="col-span-1 space-y-6">
-              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col h-full">
+            <div className="space-y-6">
+              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="font-semibold text-gray-800 flex items-center gap-2">
                     <Camera className="w-4 h-4" /> Live Camera View
@@ -495,28 +504,32 @@ export const Dashboard = () => {
                   </div>
                 </div>
                 
-                <div className="flex-1 bg-black rounded-lg overflow-hidden relative min-h-[250px] flex items-center justify-center border border-gray-800">
-                  {!isLiveCamera ? (
-                    // โหมดจำลองใช้รูปใน storage ไม่ใช่ภาพสด; ไฟล์นี้อาจไม่มีใน checkout ใหม่
-                    <img  src="/ex.jpg" 
-                          alt="Mock Camera Feed" 
-                          className="w-full h-full object-cover opacity-90"
-                    />
-                  ) : (
-                    // โหมดกล้องจริงยังเป็น placeholder; ยังไม่มี stream source หรือ UI เปิดโหมดนี้
-                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-2">
-                      {/* 
-                        TODO: ใส่ <video> หรือ <img> สำหรับสตรีมจริงที่นี่ 
-                        เช่น: <video id="live-stream" autoPlay playsInline className="w-full h-full object-cover"></video>
-                      */}
-                      <Camera className="w-8 h-8 opacity-50" />
-                      <p className="text-sm text-center px-4">Real camera stream goes here.<br/>Ready for integration.</p>
+                <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-gray-800">
+                  <video
+                    key={cameraId}
+                    src={CAMERA_SOURCES[cameraId].src}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    controls
+                    preload="auto"
+                    aria-label={`${CAMERA_SOURCES[cameraId].label} camera feed`}
+                    onError={() => setCameraVideoError(true)}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  {cameraVideoError && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 text-white">
+                      <Camera className="w-8 h-8 opacity-70" />
+                      <p className="px-4 text-center text-sm">
+                        Unable to load video for {CAMERA_SOURCES[cameraId].label}.
+                      </p>
                     </div>
                   )}
                   
                   {/* Overlay ข้อมูลกล้อง */}
                   <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded">
-                    {cameraId === 'cam_main' ? 'Zone A (Cold Storage)' : 'Zone B (Processing)'}
+                    {CAMERA_SOURCES[cameraId].label}
                   </div>
                   <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded font-mono">
                     {new Date().toLocaleTimeString()}
@@ -524,7 +537,7 @@ export const Dashboard = () => {
                 </div>
                 
                 <div className="mt-4 text-xs text-gray-500">
-                  <p><strong>Note:</strong> Currently in mock mode using placeholder image (`/storage/data/ex.jpg`).</p>
+                  <p><strong>Note:</strong> Playing the selected camera video feed.</p>
                 </div>
               </div>
             </div>

@@ -81,3 +81,93 @@ class ForecastResult(Base):
     model_name: Mapped[str] = mapped_column(String(100))
     model_version: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# =====================================================================
+# โครงสร้างตารางใหม่ (4 ตารางหลัก + ตารางรายปี)
+# time, product, boxes_A, boxes_B, total_boxes
+# =====================================================================
+
+from sqlalchemy import BigInteger
+
+class BoxLog(Base):
+    """1. การเก็บค่าจากกล่อง / กล้องตรวจจับ (Box Detection Logs)"""
+    __tablename__ = "box_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), index=True)
+    product: Mapped[str] = mapped_column(String(100), default="Frozen Shrimp", index=True)
+    boxes_A: Mapped[int] = mapped_column("boxes_a", Integer, default=0)
+    boxes_B: Mapped[int] = mapped_column("boxes_b", Integer, default=0)
+    total_boxes: Mapped[int] = mapped_column(Integer, default=0)
+    camera_id: Mapped[Optional[str]] = mapped_column(String(50))
+    image_path: Mapped[Optional[str]] = mapped_column(String(255))
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DailyInventory(Base):
+    """2. คลังสินค้ารายวัน (Daily Inventories)"""
+    __tablename__ = "daily_inventories"
+    __table_args__ = (
+        UniqueConstraint("time", "product", name="uq_daily_inventories_time_product"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    time: Mapped[date] = mapped_column(Date, index=True)
+    product: Mapped[str] = mapped_column(String(100), default="Frozen Shrimp")
+    boxes_A: Mapped[int] = mapped_column("boxes_a", Integer, default=0)
+    boxes_B: Mapped[int] = mapped_column("boxes_b", Integer, default=0)
+    total_boxes: Mapped[int] = mapped_column(Integer, default=0)
+    inbound_boxes: Mapped[int] = mapped_column(Integer, default=0)
+    outbound_boxes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MonthlyInventory(Base):
+    """3. คลังสินค้ารายเดือน (Monthly Inventories - สำหรับเทรนและป้อนเข้า ARIMA)"""
+    __tablename__ = "monthly_inventories"
+    __table_args__ = (
+        UniqueConstraint("time", "product", name="uq_monthly_inventories_time_product"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    time: Mapped[date] = mapped_column(Date, index=True)  # เช่น 2021-01-01
+    product: Mapped[str] = mapped_column(String(100), default="Frozen Shrimp")
+    boxes_A: Mapped[int] = mapped_column("boxes_a", Integer, default=0)
+    boxes_B: Mapped[int] = mapped_column("boxes_b", Integer, default=0)
+    total_boxes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class YearlyInventory(Base):
+    """3.1 คลังสินค้ารายปี (Yearly Inventories)"""
+    __tablename__ = "yearly_inventories"
+    __table_args__ = (
+        UniqueConstraint("time", "product", name="uq_yearly_inventories_time_product"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    time: Mapped[date] = mapped_column(Date, index=True)  # เช่น 2021-01-01
+    product: Mapped[str] = mapped_column(String(100), default="Frozen Shrimp")
+    boxes_A: Mapped[int] = mapped_column("boxes_a", Integer, default=0)
+    boxes_B: Mapped[int] = mapped_column("boxes_b", Integer, default=0)
+    total_boxes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ArimaForecast(Base):
+    """4. ค่าทำนายจาก ARIMA (ARIMA Forecasts)"""
+    __tablename__ = "arima_forecasts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    time: Mapped[date] = mapped_column(Date, index=True)  # เช่น 2024-04-01
+    product: Mapped[str] = mapped_column(String(100), default="Frozen Shrimp", index=True)
+    boxes_A: Mapped[Optional[float]] = mapped_column("boxes_a", Float)
+    boxes_B: Mapped[Optional[float]] = mapped_column("boxes_b", Float)
+    total_boxes: Mapped[float] = mapped_column(Float)  # ค่าพยากรณ์สต็อกรวม
+    lower_bound: Mapped[Optional[float]] = mapped_column(Float)
+    upper_bound: Mapped[Optional[float]] = mapped_column(Float)
+    model_order: Mapped[str] = mapped_column(String(50), default="ARIMA(1,1,1)")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+

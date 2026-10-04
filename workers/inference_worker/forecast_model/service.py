@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from statsmodels.tsa.arima.model import ARIMAResults
 
-from models.stock import InventorySummary, ForecastResult
+from models.stock import MonthlyInventory, DailyInventory, ArimaForecast, InventorySummary, ForecastResult, BoxLog
 from forecasting.schemas import ForecastRequest, ForecastResponse, ForecastDataPoint, ForecastMetrics
 from inference_worker.forecast_model.preprocessing import prepare_time_series, chronological_split, PreprocessingError
 from inference_worker.forecast_model.arima import train_arima, forecast_arima
@@ -29,29 +29,57 @@ class ForecastingService:
         self.session = session
 
     async def get_inventory_data(self) -> pd.DataFrame:
-        """Read inventory quantities from PostgreSQL, falling back to the configured CSV."""
+        """Read monthly inventory quantities from PostgreSQL monthly_inventories table."""
         stmt = (
-            select(InventorySummary.date, InventorySummary.total_boxes)
-            .order_by(InventorySummary.date, InventorySummary.time)
+            select(MonthlyInventory.time, MonthlyInventory.total_boxes)
+            .order_by(MonthlyInventory.time.asc())
         )
         result = await self.session.execute(stmt)
         rows = result.all()
         if rows:
             return pd.DataFrame(
                 {
-                    "recorded_at": [row.date for row in rows],
+                    "recorded_at": [row.time for row in rows],
                     "quantity": [float(row.total_boxes) for row in rows],
                 }
             )
 
-        logger.warning("No inventory rows in PostgreSQL; using the inventory CSV fallback")
+        # Fallback to daily_inventories
+        stmt_daily = (
+            select(DailyInventory.time, DailyInventory.total_boxes)
+            .order_by(DailyInventory.time.asc())
+        )
+        result_daily = await self.session.execute(stmt_daily)
+        rows_daily = result_daily.all()
+        if rows_daily:
+            return pd.DataFrame(
+                {
+                    "recorded_at": [row.time for row in rows_daily],
+                    "quantity": [float(row.total_boxes) for row in rows_daily],
+                }
+            )
+
+        logger.warning("No rows in monthly_inventories; falling back to CSV")
         try:
             return load_inventory_time_series()
         except (FileNotFoundError, ValueError) as exc:
             raise PreprocessingError(f"No usable inventory data is available: {exc}") from exc
 
     async def get_detected_stock_data(self) -> pd.DataFrame:
-        """คืน DataFrame ว่างเป็น placeholder จนกว่าจะมีแหล่งข้อมูล CameraLog"""
+        """Query box_logs as exogenous camera detection data if available."""
+        stmt = (
+            select(BoxLog.time, BoxLog.total_boxes)
+            .order_by(BoxLog.time.asc())
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        if rows:
+            return pd.DataFrame(
+                {
+                    "recorded_at": [row.time for row in rows],
+                    "detected_stock": [float(row.total_boxes) for row in rows],
+                }
+            )
         return pd.DataFrame(columns=['recorded_at', 'detected_stock'])
 
     async def run_forecast(self, req: ForecastRequest) -> ForecastResponse:
@@ -137,19 +165,32 @@ class ForecastingService:
         last_date = monthly_df.index[-1]
         future_dates = pd.date_range(start=last_date, periods=req.forecast_horizon + 1, freq='MS')[1:]
         
-        # 5. Save ForecastResult to DB
+        # 5. Save ArimaForecast to DB
         api_results = []
         for dt, pred, lower, upper in zip(future_dates, future_forecast, conf_int.iloc[:, 0], conf_int.iloc[:, 1]):
+            # 1. Save to new arima_forecasts table
+            af = ArimaForecast(
+                time=dt.date(),
+                product=req.product,
+                total_boxes=float(pred),
+                lower_bound=float(lower),
+                upper_bound=float(upper),
+                model_order=f"ARIMA({req.p},{req.d},{req.q})"
+            )
+            self.session.add(af)
+
+            # 2. Also save to old forecast_results table for backward compatibility
             fr = ForecastResult(
                 product=req.product,
                 forecast_date=dt.date(),
                 predicted_value=float(pred),
                 lower_bound=float(lower),
                 upper_bound=float(upper),
-                model_name="ARIMA_Inference",
+                model_name=f"ARIMA({req.p},{req.d},{req.q})",
                 model_version=model_uri
             )
             self.session.add(fr)
+
             api_results.append(ForecastDataPoint(
                 date=dt.date(),
                 predicted_value=float(pred),

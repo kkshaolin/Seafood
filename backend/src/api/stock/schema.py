@@ -18,6 +18,9 @@ class StockRecordResponse(BaseModel):
     id: int
     recorded_at: datetime
     product: str
+    boxes_A: Optional[int] = None
+    boxes_B: Optional[int] = None
+    total_boxes: Optional[int] = None
     quantity: float
     unit: str
     warehouse: Optional[str] = None
@@ -40,6 +43,9 @@ class StockHistoryDataPoint(BaseModel):
     recorded_at: datetime
     product: str
     quantity: float
+    boxes_A: Optional[int] = None
+    boxes_B: Optional[int] = None
+    total_boxes: Optional[int] = None
 
 
 class StockHistoryResponse(BaseModel):
