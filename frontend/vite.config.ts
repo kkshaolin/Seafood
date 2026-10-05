@@ -7,6 +7,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    watch: {
+      usePolling: true,
+      interval: 500,
+    },
     proxy: {
       '/api': {
         // ใช้ชื่อ service ที่ Docker Compose ทำ DNS ให้; ถ้าใช้ localhost จะชี้กลับมาที่ frontend เอง

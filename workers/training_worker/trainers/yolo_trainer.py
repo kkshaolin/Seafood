@@ -234,7 +234,8 @@ async def train_yolo_model(
     import asyncio
 
     if class_names is None:
-        class_names = ["shrimp"]
+        class_names = ["box"]
+
 
     minio_client = _get_minio_client()
     work_dir = tempfile.mkdtemp(prefix=f"yolo_{job_id}_")

@@ -379,6 +379,22 @@ services:
     networks:
       - ai-network
 
+  # Label Studio สำหรับจัดการตีกรอบ Annotations / Bounding Box ของรูปภาพ
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - LABEL_STUDIO_HOST=http://localhost:8080
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data
+      - LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK=false
+    volumes:
+      - ./storage/data/label_studio_data:/label-studio/data
+    networks:
+      - ai-network
+
   # Prometheus ดึง metrics จาก endpoint ที่ OpenTelemetry Collector เปิดไว้
   prometheus:
     image: prom/prometheus:latest

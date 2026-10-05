@@ -173,11 +173,12 @@ def _load_csv_fallback(product: str) -> pd.DataFrame:
 async def train_arima_model(
     job_id: str,
     product: str,
-    p: int = 1,
-    d: int = 1,
-    q: int = 1,
+    p: Optional[int] = 1,
+    d: Optional[int] = 1,
+    q: Optional[int] = 1,
     forecast_horizon: int = 3,
     warehouse: Optional[str] = None,
+    auto_order: bool = True,
 ) -> dict:
     """
     Pipeline หลักสำหรับเทรน ARIMA:
@@ -185,10 +186,11 @@ async def train_arima_model(
     1. ดึงข้อมูลจาก PostgreSQL (stock + camera exog)
     2. Fallback ไปใช้ CSV ถ้า DB มีข้อมูล < MIN_MONTHS_REQUIRED
     3. Preprocess → Monthly resample
-    4. Chronological split → Evaluate metrics (ถ้าข้อมูลพอ)
-    5. Train full model
-    6. Serialize → Upload ขึ้น MinIO
-    7. คืนสรุปผล
+    4. Auto ACF/PACF & AIC order selection (ถ้า auto_order=True หรือใช้ค่าเริ่มต้น)
+    5. Chronological split → Evaluate metrics (ถ้าข้อมูลพอ)
+    6. Train full model
+    7. Serialize → Upload ขึ้น MinIO
+    8. คืนสรุปผล
     """
     MIN_MONTHS_REQUIRED = 12  # ARIMA ต้องการข้อมูลอย่างน้อย 12 เดือนสำหรับ split ที่ดี
     if warehouse:
@@ -206,7 +208,7 @@ async def train_arima_model(
             sys.path.insert(0, p_)
 
     from forecast_model.preprocessing import prepare_time_series, chronological_split, PreprocessingError
-    from forecast_model.arima import train_arima, forecast_arima
+    from forecast_model.arima import train_arima, forecast_arima, select_optimal_arima_order
     from forecast_model.metrics import calculate_mae, calculate_rmse, calculate_mape
 
     database_url = os.getenv("DATABASE_URL", "postgresql://admin:secretpassword@postgres:5432/my_database")
@@ -264,6 +266,27 @@ async def train_arima_model(
     logger.info("Monthly data shape: %s, date range: %s → %s",
                 monthly_df.shape, monthly_df.index[0], monthly_df.index[-1])
 
+    # 4.1 Auto ACF/PACF & AIC order selection
+    # ถ้าเปิด auto_order หรือพารามิเตอร์เป็นค่าเริ่มต้น (1, 1, 1) หรือไม่ได้ระบุ จะวิเคราะห์สถิติเพื่อหา Order ที่เหมาะสมที่สุด
+    used_auto_order = False
+    if auto_order or (p is None or d is None or q is None) or (p == 1 and d == 1 and q == 1):
+        try:
+            logger.info("Analyzing ADF, ACF, and PACF to find optimal (p, d, q)...")
+            opt_p, opt_d, opt_q = select_optimal_arima_order(
+                monthly_df, target_col="quantity", exog_cols=exog_cols
+            )
+            logger.info("Auto ACF/PACF selection result: ARIMA(%d,%d,%d) (was (%s,%s,%s))",
+                        opt_p, opt_d, opt_q, p, d, q)
+            p, d, q = opt_p, opt_d, opt_q
+            used_auto_order = True
+        except Exception as e:
+            logger.warning("Auto ARIMA order selection failed (%s); using (%s,%s,%s)", e, p, d, q)
+            p = p or 1
+            d = d or 1
+            q = q or 1
+    else:
+        logger.info("Using specified ARIMA order: (%d,%d,%d)", p, d, q)
+
     # 5. Evaluate metrics (chronological 80/20 split) — only if enough data
     mae, rmse, mape_val = 0.0, 0.0, 0.0
     if len(monthly_df) >= 10:
@@ -313,6 +336,8 @@ async def train_arima_model(
     metrics = {
         "mae": mae, "rmse": rmse, "mape": mape_val,
         "p": p, "d": d, "q": q,
+        "model_order": f"ARIMA({p},{d},{q})",
+        "auto_order_used": used_auto_order,
         "forecast_horizon": forecast_horizon,
         "n_train_months": len(monthly_df),
         "product": product,

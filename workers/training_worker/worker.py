@@ -94,11 +94,12 @@ async def run_training_task(ctx, req_data: dict) -> dict:
             result = await train_arima_model(
                 job_id=job_id,
                 product=req_data.get("product", "Premium_White_Shrimp"),
-                p=int(req_data.get("p", 1)),
-                d=int(req_data.get("d", 1)),
-                q=int(req_data.get("q", 1)),
+                p=int(req_data.get("p", 1)) if req_data.get("p") is not None else None,
+                d=int(req_data.get("d", 1)) if req_data.get("d") is not None else None,
+                q=int(req_data.get("q", 1)) if req_data.get("q") is not None else None,
                 forecast_horizon=int(req_data.get("forecast_horizon", 3)),
                 warehouse=req_data.get("warehouse"),
+                auto_order=req_data.get("auto_order", True),
             )
 
         elif model_type == "yolo":

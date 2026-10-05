@@ -15,7 +15,7 @@ from statsmodels.tsa.arima.model import ARIMAResults
 from models.stock import MonthlyInventory, DailyInventory, ArimaForecast, InventorySummary, ForecastResult, BoxLog
 from forecasting.schemas import ForecastRequest, ForecastResponse, ForecastDataPoint, ForecastMetrics
 from inference_worker.forecast_model.preprocessing import prepare_time_series, chronological_split, PreprocessingError
-from inference_worker.forecast_model.arima import train_arima, forecast_arima
+from inference_worker.forecast_model.arima import train_arima, forecast_arima, select_optimal_arima_order
 from inference_worker.forecast_model.metrics import calculate_mae, calculate_rmse, calculate_mape
 from inventory_data import get_local_arima_model_path, load_inventory_time_series
 
@@ -120,26 +120,42 @@ class ForecastingService:
         full_model = None
         model_uri = f"local://{model_path}"
         mae, rmse, mape = 0.0, 0.0, 0.0
+        actual_order = (req.p, req.d, req.q)
         
         if os.path.exists(model_path):
             try:
                 # Load pre-trained model
                 loaded_model = ARIMAResults.load(model_path)
+                order_tuple = getattr(getattr(loaded_model, "model", None), "order", None)
+                if order_tuple and len(order_tuple) == 3:
+                    actual_order = order_tuple
                 
                 # Apply new data to the pre-trained model to update its state
-                # Note: statsmodels apply creates a new results object with the same parameters
-                # Exogenous variables not handled in this basic apply for simplicity
-                full_model = loaded_model.apply(monthly_df['quantity'])
-                logger.info("Loaded and applied model from %s", model_path)
+                has_exog = hasattr(loaded_model.model, 'exog') and loaded_model.model.exog is not None
+                exog_data = monthly_df[exog_cols] if (has_exog and exog_cols) else None
+                full_model = loaded_model.apply(monthly_df['quantity'], exog=exog_data)
+                logger.info("Loaded and applied model from %s with order ARIMA%s", model_path, actual_order)
             except Exception as e:
                 logger.warning("Failed to load/apply model from %s: %s", model_path, e)
                 
         # 3. Fallback: Retrain if load failed
         if full_model is None:
+            # Auto-detect optimal order via ACF/PACF & AIC if using default (1,1,1)
+            use_p, use_d, use_q = req.p, req.d, req.q
+            if req.p == 1 and req.d == 1 and req.q == 1:
+                try:
+                    logger.info("Auto-detecting optimal order for fallback training via ACF/PACF & AIC...")
+                    opt_p, opt_d, opt_q = select_optimal_arima_order(monthly_df, 'quantity', exog_cols)
+                    use_p, use_d, use_q = opt_p, opt_d, opt_q
+                    logger.info("Fallback training selected optimal order: ARIMA(%d,%d,%d)", use_p, use_d, use_q)
+                except Exception as opt_err:
+                    logger.warning("Auto order selection in fallback failed: %s", opt_err)
+            actual_order = (use_p, use_d, use_q)
+
             # Quick train/test for metrics
             try:
                 train_df, test_df = chronological_split(monthly_df, train_ratio=0.8)
-                model = train_arima(train_df, 'quantity', exog_cols, req.p, req.d, req.q)
+                model = train_arima(train_df, 'quantity', exog_cols, use_p, use_d, use_q)
                 future_exog = test_df[exog_cols] if exog_cols else None
                 test_forecast, _ = forecast_arima(model, steps=len(test_df), future_exog=future_exog)
                 
@@ -151,7 +167,7 @@ class ForecastingService:
             except Exception as exc:
                 logger.warning("Forecast metric evaluation failed: %s", exc)
                 
-            full_model = train_arima(monthly_df, 'quantity', exog_cols, req.p, req.d, req.q)
+            full_model = train_arima(monthly_df, 'quantity', exog_cols, use_p, use_d, use_q)
             model_uri = "trained_from_scratch"
             
         # 4. Forecast Future (3 months or req.forecast_horizon)
@@ -168,6 +184,7 @@ class ForecastingService:
         future_dates = pd.date_range(start=last_date, periods=req.forecast_horizon + 1, freq='MS')[1:]
         
         # 5. Save ArimaForecast to DB
+        model_order_str = f"ARIMA({actual_order[0]},{actual_order[1]},{actual_order[2]})"
         api_results = []
         for dt, pred, lower, upper in zip(future_dates, future_forecast, conf_int.iloc[:, 0], conf_int.iloc[:, 1]):
             # 1. Save to new arima_forecasts table
@@ -177,7 +194,7 @@ class ForecastingService:
                 total_boxes=float(pred),
                 lower_bound=float(lower),
                 upper_bound=float(upper),
-                model_order=f"ARIMA({req.p},{req.d},{req.q})"
+                model_order=model_order_str
             )
             self.session.add(af)
 

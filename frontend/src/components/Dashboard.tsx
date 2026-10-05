@@ -23,13 +23,17 @@ const CAMERA_SOURCES: Record<CameraId, { label: string; src: string }> = {
   cam_dock: { label: 'Zone B (Processing)', src: '/mockB.mp4' },
 };
 
-export const Dashboard = () => {
+interface DashboardProps {
+  onNavigateTraining?: () => void;
+}
+
+export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   // ใช้ควบคุมสถานะกำลังทำงานและข้อความที่แสดงใน loading overlay
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   
   // กำหนดสินค้าเริ่มต้น รวมถึงช่วงเวลาพยากรณ์และกล้องที่เลือก
-  const PRODUCT_NAME = "Premium_White_Shrimp";
+  const PRODUCT_NAME = "Frozen_Seafood";
   const [horizon, setHorizon] = useState(3);
   const [cameraId, setCameraId] = useState<CameraId>('cam_main');
   const [cameraVideoError, setCameraVideoError] = useState(false);
@@ -289,21 +293,12 @@ export const Dashboard = () => {
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
         <div className="p-4 border-b border-gray-200">
           <h1 className="text-lg font-bold text-blue-600 flex items-center gap-2">
-            <Box className="w-5 h-5" /> ShrimpStock AI
+            <Box className="w-5 h-5" /> SeafoodStock AI
           </h1>
         </div>
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
 
-          
-          <div className="space-y-2">
-            {/* ตัวเลือกคลังเป็น UI ตัวอย่าง ยังไม่ได้ผูก state หรือกรองข้อมูล API */}
-            <label className="font-semibold text-gray-700">Warehouse</label>
-            <select className="w-full p-2 border rounded text-gray-700 bg-white">
-              <option>All Zones</option>
-              <option>Zone A (Cold Storage)</option>
-              <option>Zone B (Processing)</option>
-            </select>
-          </div>
+
 
           <div className="space-y-2">
             <label className="font-semibold text-gray-700">Camera Source</label>
@@ -328,11 +323,12 @@ export const Dashboard = () => {
             <PlayCircle className="w-4 h-4" /> Run Prediction
           </button>
           <button 
-            onClick={runTraining}
+            onClick={onNavigateTraining ? onNavigateTraining : runTraining}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white p-2 rounded transition font-medium"
+            className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white p-2 rounded transition font-medium shadow-xs"
+            title="เปิดหน้าต่าง Training Studio สำหรับฝึกโมเดล YOLO & ARIMA"
           >
-            <Settings className="w-4 h-4" /> Train Model
+            <Settings className="w-4 h-4" /> Train Model Studio
           </button>
         </div>
       </aside>
@@ -408,31 +404,31 @@ export const Dashboard = () => {
               </div>
             </div>
 
-            {/* 2. การ์ด Current Stock */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-gray-500 mb-1 flex items-center justify-between">
-                <span>Current Stock</span>
-                <Box className="w-4 h-4 text-blue-500" />
-              </div>
-              <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} kg</div>
-            </div>
-
-            {/* 3. การ์ด Average Monthly */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-gray-500 mb-1 flex items-center justify-between">
-                <span>Average Monthly</span>
-                <Activity className="w-4 h-4 text-purple-500" />
-              </div>
-              <div className="text-2xl font-bold text-gray-800">{avgStock} kg</div>
-            </div>
-
-            {/* 4. การ์ด Forecast (Next) */}
+            {/* 2. การ์ด Forecast (Next) */}
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
               <div className="text-gray-500 mb-1 flex items-center justify-between">
                 <span>Forecast (Next)</span>
                 <TrendingUp className="w-4 h-4 text-emerald-500" />
               </div>
-              <div className="text-2xl font-bold text-gray-800">{nextForecast} kg</div>
+              <div className="text-2xl font-bold text-gray-800">{nextForecast} Box</div>
+            </div>
+
+            {/* 3. การ์ด Current Stock */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <div className="text-gray-500 mb-1 flex items-center justify-between">
+                <span>Current Stock</span>
+                <Box className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} Box</div>
+            </div>
+
+            {/* 4. การ์ด Average Monthly */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <div className="text-gray-500 mb-1 flex items-center justify-between">
+                <span>Average Monthly</span>
+                <Activity className="w-4 h-4 text-purple-500" />
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{avgStock} Box</div>
             </div>
           </div>
 
@@ -467,33 +463,7 @@ export const Dashboard = () => {
                 </div>
               </div>
 
-              {/* รายละเอียดโมเดลและตัวชี้วัดจะแสดงเมื่อมีผลพยากรณ์แล้วเท่านั้น */}
-              {forecastData && (
-                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-                  {/* หัวข้อเป็นชื่อส่วนแสดงผล; URI อาจเป็น local path ไม่ได้ยืนยันว่า register ใน MLflow แล้ว */}
-                  <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                    <Settings className="w-4 h-4" /> Model Information (MLflow)
-                  </h3>
-                  <div className="grid grid-cols-5 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-100">
-                    <div>
-                      <div className="text-xs text-gray-500">Algorithm</div>
-                      <div className="font-semibold text-gray-800">{forecastData.model_name}</div>
-                    </div>
-                    <div className="col-span-2 overflow-hidden text-ellipsis whitespace-nowrap">
-                      <div className="text-xs text-gray-500">Model URI</div>
-                      <div className="font-semibold text-gray-800 text-xs mt-1" title={forecastData.model_uri}>{forecastData.model_uri || 'Not saved to MLflow'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">MAE</div>
-                      <div className="font-semibold text-green-600">{forecastData.metrics?.mae?.toFixed(2) || 0}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">MAPE</div>
-                      <div className="font-semibold text-green-600">{forecastData.metrics?.mape?.toFixed(2) || 0}%</div>
-                    </div>
-                  </div>
-                </div>
-              )}
+
             </div>
 
             {/* คอลัมน์ที่ 3: ส่วนแสดงภาพจากกล้อง */}
@@ -600,7 +570,7 @@ export const Dashboard = () => {
 
               {/* กำหนดระดับสต็อกที่ใช้เป็นเกณฑ์แจ้งเตือนความเสี่ยง */}
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase">Low Stock Threshold (kg)</label>
+                <label className="text-xs font-semibold text-gray-600 uppercase">Low Stock Threshold (Box)</label>
                 <input 
                   type="number" 
                   value={settings.low_stock_threshold || ''}

@@ -1,12 +1,20 @@
-// คอมโพเนนต์รากของ React ปัจจุบันแสดง Dashboard เป็นหน้าหลักของระบบ
-import React from 'react'
+import React, { useState } from 'react'
 import { Dashboard } from './components/Dashboard'
+import { TrainingStudio } from './components/TrainingStudio'
 
-// แยกโครงหน้าหลักไว้ตรงนี้ เพื่อเพิ่มเมนูหรือหน้าจออื่นได้โดยไม่ต้องแก้จุดเริ่มโปรแกรม
 function App() {
+  const [currentView, setCurrentView] = useState<'dashboard' | 'training'>('dashboard');
+
   return (
-    <Dashboard />
-  )
+    <>
+      {currentView === 'dashboard' ? (
+        <Dashboard onNavigateTraining={() => setCurrentView('training')} />
+      ) : (
+        <TrainingStudio onBack={() => setCurrentView('dashboard')} />
+      )}
+    </>
+  );
 }
 
 export default App
+

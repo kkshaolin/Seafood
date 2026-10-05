@@ -33,3 +33,19 @@ export const getLatestForecast = async (product: string) => {
   const res = await apiClient.get(`/forecast/latest?product=${product}`);
   return res.data;
 };
+
+// ส่งงานฝึกโมเดล YOLO สำหรับ Object Detection เข้าคิว training_queue
+export interface YoloTrainRequestPayload {
+  dataset_name?: string;
+  class_names?: string[];
+  epochs?: number;
+  imgsz?: number;
+  batch?: number;
+  patience?: number;
+}
+
+export const queueYoloTraining = async (payload: YoloTrainRequestPayload = {}) => {
+  const res = await apiClient.post('/forecast/train/yolo', payload);
+  return res.data;
+};
+

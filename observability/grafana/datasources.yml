@@ -23,7 +23,9 @@ datasources:
     url: aws-0-ap-southeast-1.pooler.supabase.com:5432
     user: postgres.hmystckhrffpnspzbpue
     secureJsonData:
-      password: "r5Diz$x6g8-Ls3%"
+      password: "r5Diz$$x6g8-Ls3%"
     jsonData:
       database: postgres
       sslmode: require
+    version: 2
+

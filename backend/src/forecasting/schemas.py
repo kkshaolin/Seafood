@@ -64,10 +64,10 @@ class ForecastJobStatusResponse(BaseModel):
 
 class YoloTrainRequest(BaseModel):
     """คำขอฝึกโมเดล YOLO ที่ส่งไปยัง training_queue"""
-    dataset_name: str = "shrimp_v1"
+    dataset_name: str = "box_v1"
     """ชื่อ dataset ใน MinIO: bucket=datasets, key=yolo/<dataset_name>/<dataset_name>.zip"""
     class_names: Optional[List[str]] = None
-    """รายชื่อ class เช่น ["shrimp"]; ถ้า null จะใช้ default ["shrimp"]"""
+    """รายชื่อ class เช่น ["box"]; ถ้า null จะใช้ default ["box"]"""
     epochs: int = 10
     imgsz: int = 640
     batch: int = 8
