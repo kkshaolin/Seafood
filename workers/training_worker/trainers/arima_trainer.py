@@ -19,6 +19,7 @@ from typing import Optional
 import pandas as pd
 from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from sqlalchemy import text
 
 from inventory_data import get_inventory_csv_path, get_local_arima_model_path, load_inventory_time_series
@@ -67,15 +68,15 @@ def _upload_bytes(client: Minio, bucket: str, key: str, data: bytes,
 # ---------------------------------------------------------------------------
 
 def _make_session_factory(database_url: str):
-    """สร้าง async session factory จาก DATABASE_URL."""
+    """สร้าง async session factory และ engine จาก DATABASE_URL โดยใช้ NullPool."""
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif database_url.startswith("postgresql://"):
         database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     elif not database_url.startswith("postgresql+asyncpg://"):
         raise ValueError("DATABASE_URL must use a PostgreSQL URL scheme")
-    engine = create_async_engine(database_url, pool_pre_ping=True)
-    return async_sessionmaker(engine, expire_on_commit=False)
+    engine = create_async_engine(database_url, poolclass=NullPool)
+    return async_sessionmaker(engine, expire_on_commit=False), engine
 
 
 async def _fetch_inventory_summaries(session: AsyncSession) -> pd.DataFrame:
@@ -212,12 +213,15 @@ async def train_arima_model(
     from forecast_model.metrics import calculate_mae, calculate_rmse, calculate_mape
 
     database_url = os.getenv("DATABASE_URL", "postgresql://admin:secretpassword@postgres:5432/my_database")
-    session_factory = _make_session_factory(database_url)
+    session_factory, engine = _make_session_factory(database_url)
 
     # 1. Fetch data from PostgreSQL
-    async with session_factory() as session:
-        stock_df = await _fetch_inventory_summaries(session)
-        camera_df = await _fetch_camera_exog(session)
+    try:
+        async with session_factory() as session:
+            stock_df = await _fetch_inventory_summaries(session)
+            camera_df = await _fetch_camera_exog(session)
+    finally:
+        await engine.dispose()
 
     logger.info("DB returned %d stock rows for '%s'", len(stock_df), product)
 
@@ -346,6 +350,8 @@ async def train_arima_model(
         "local_model_path": str(local_model_path),
     }
     metrics_bytes = json.dumps(metrics, indent=2).encode()
+    local_metrics_path = local_model_path.with_suffix(".json")
+    local_metrics_path.write_bytes(metrics_bytes)
     metrics_key = f"arima/{product}/{job_id}/metrics.json"
     _upload_bytes(minio_client, model_bucket, metrics_key, metrics_bytes, "application/json")
 

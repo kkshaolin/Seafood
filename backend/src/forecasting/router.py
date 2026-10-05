@@ -4,6 +4,8 @@
 ดังนั้น endpoint เหล่านี้ใช้สำหรับส่งงาน forecasting และตรวจสอบสถานะของ job.
 """
 
+import os
+import re
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from arq import create_pool
@@ -50,18 +52,39 @@ async def get_latest_forecast(
             points = [
                 ForecastDataPoint(
                     date=r.time,
-                    predicted_value=r.total_boxes,
-                    lower_bound=r.lower_bound,
-                    upper_bound=r.upper_bound
+                    predicted_value=int(round(r.total_boxes)),
+                    lower_bound=max(0, int(round(r.lower_bound))) if r.lower_bound is not None else None,
+                    upper_bound=max(0, int(round(r.upper_bound))) if r.upper_bound is not None else None,
                 )
                 for r in latest_records
             ]
+            metrics_obj = ForecastMetrics(mae=0, rmse=0, mape=0)
+            model_uri = None
+            try:
+                import json
+                from pathlib import Path
+                storage_root = os.getenv("STORAGE_ROOT", "/app/storage")
+                safe_product = re.sub(r"[^A-Za-z0-9_.-]", "_", product)
+                m_path = Path(storage_root) / "models" / "time_serie" / f"arima_{safe_product}.json"
+                if not m_path.exists() and product == "Premium_White_Shrimp":
+                    m_path = Path(storage_root) / "models" / "time_serie" / "arima_premium_shrimp.json"
+                if m_path.exists():
+                    m_data = json.loads(m_path.read_text(encoding="utf-8"))
+                    metrics_obj = ForecastMetrics(
+                        mae=float(m_data.get("mae", 0.0)),
+                        rmse=float(m_data.get("rmse", 0.0)),
+                        mape=float(m_data.get("mape", 0.0))
+                    )
+                    model_uri = m_data.get("local_model_path")
+            except Exception:
+                pass
+
             return ForecastResponse(
                 product=product,
                 model_name=latest_records[0].model_order or "ARIMA",
-                metrics=ForecastMetrics(mae=0, rmse=0, mape=0),
+                metrics=metrics_obj,
                 forecast=points,
-                model_uri=None
+                model_uri=model_uri
             )
 
         # 2. Fallback to old table: forecast_results
@@ -83,9 +106,9 @@ async def get_latest_forecast(
         points = [
             ForecastDataPoint(
                 date=r.forecast_date,
-                predicted_value=r.predicted_value,
-                lower_bound=r.lower_bound,
-                upper_bound=r.upper_bound
+                predicted_value=int(round(r.predicted_value)),
+                lower_bound=max(0, int(round(r.lower_bound))) if r.lower_bound is not None else None,
+                upper_bound=max(0, int(round(r.upper_bound))) if r.upper_bound is not None else None,
             )
             for r in latest_records_old
         ]

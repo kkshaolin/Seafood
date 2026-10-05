@@ -20,12 +20,12 @@ datasources:
   - name: PostgreSQL
     type: postgres
     uid: postgres
-    url: aws-0-ap-southeast-1.pooler.supabase.com:5432
-    user: postgres.hmystckhrffpnspzbpue
+    url: postgres:5432
+    user: admin
     secureJsonData:
-      password: "r5Diz$$x6g8-Ls3%"
+      password: "secretpassword"
     jsonData:
-      database: postgres
-      sslmode: require
-    version: 2
+      database: my_database
+      sslmode: disable
+    version: 3
 

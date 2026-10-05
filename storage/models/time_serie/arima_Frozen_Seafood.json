@@ -1,0 +1,16 @@
+{
+  "mae": 4.311406968599559,
+  "rmse": 4.8572279808338115,
+  "mape": 6.245830482465391,
+  "p": 2,
+  "d": 0,
+  "q": 2,
+  "model_order": "ARIMA(2,0,2)",
+  "auto_order_used": true,
+  "forecast_horizon": 3,
+  "n_train_months": 70,
+  "product": "Frozen_Seafood",
+  "data_source": "postgresql",
+  "trained_at": "2026-10-05T09:10:32.630999+00:00",
+  "local_model_path": "/app/storage/models/time_serie/arima_Frozen_Seafood.pkl"
+}

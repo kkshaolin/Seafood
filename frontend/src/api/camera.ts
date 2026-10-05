@@ -1,7 +1,25 @@
 import { apiClient } from './client';
 
-// ฟังก์ชันเตรียมไว้สำหรับเชื่อมกล้อง แต่ backend ปัจจุบันยังไม่ได้ลงทะเบียน camera router
-// ดังนั้นการเรียก URL เหล่านี้ยังตอบ 404 จนกว่าจะเพิ่ม endpoint ฝั่ง backend
+export interface CameraLatestInfo {
+  camera_id: string;
+  zone: string;
+  detected_boxes: number;
+  confidence: number;
+  last_updated: string;
+  next_update_seconds: number;
+  interval_seconds: number;
+  status: string;
+}
+
+export const getCameraFrameUrl = (cameraId: string, timestamp?: number, force: boolean = false): string => {
+  const base = import.meta.env.VITE_API_BASE_URL || '/api';
+  const query = new URLSearchParams();
+  if (timestamp) query.set('t', timestamp.toString());
+  if (force) query.set('force', 'true');
+  const qs = query.toString();
+  return `${base}/camera/${cameraId}/frame${qs ? `?${qs}` : ''}`;
+};
+
 export const uploadCameraImage = async (cameraId: string, file: File) => {
   const formData = new FormData();
   formData.append('file', file);
@@ -11,8 +29,8 @@ export const uploadCameraImage = async (cameraId: string, file: File) => {
   return res.data;
 };
 
-export const getLatestCameraLog = async (cameraId: string) => {
-  const res = await apiClient.get(`/camera/${cameraId}/latest`);
+export const getLatestCameraLog = async (cameraId: string): Promise<CameraLatestInfo> => {
+  const res = await apiClient.get<CameraLatestInfo>(`/camera/${cameraId}/latest`);
   return res.data;
 };
 

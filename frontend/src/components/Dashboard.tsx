@@ -6,12 +6,12 @@ import {
 } from 'recharts';
 // ไอคอนที่ใช้ประกอบปุ่ม หัวข้อ และการ์ดสรุปในหน้า Dashboard
 import { 
-  Activity, Box, Camera, AlertTriangle, TrendingUp, Settings, PlayCircle, RefreshCw
+  Activity, Box, Camera, AlertTriangle, TrendingUp, Settings, PlayCircle, RefreshCw, CheckCircle2, Eye, Video
 } from 'lucide-react';
 
 // ฟังก์ชันเรียก API แยกตามความรับผิดชอบ: สต็อก, กล้อง, พยากรณ์, ตั้งค่า และประเมินความเสี่ยง
 import { getStockSummary, getStockHistory, getStockProducts } from '../api/stock';
-import { getLatestCameraLog, getCameraLogsHistory } from '../api/camera';
+import { getLatestCameraLog, getCameraLogsHistory, getCameraFrameUrl } from '../api/camera';
 import { queueForecast, getForecastJobStatus, queueTraining, getLatestForecast } from '../api/forecast';
 import { getSettings, updateSettings } from '../api/settings';
 import { evaluateRisk } from '../api/risk';
@@ -31,12 +31,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   // ใช้ควบคุมสถานะกำลังทำงานและข้อความที่แสดงใน loading overlay
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
+  const [statusSubMsg, setStatusSubMsg] = useState('');
   
   // กำหนดสินค้าเริ่มต้น รวมถึงช่วงเวลาพยากรณ์และกล้องที่เลือก
   const PRODUCT_NAME = "Frozen_Seafood";
   const [horizon, setHorizon] = useState(3);
   const [cameraId, setCameraId] = useState<CameraId>('cam_main');
   const [cameraVideoError, setCameraVideoError] = useState(false);
+  const [cameraMode, setCameraMode] = useState<'yolo' | 'video'>('yolo');
+  const [cameraFrameTime, setCameraFrameTime] = useState<number>(Date.now());
+  const [isRefreshingFrame, setIsRefreshingFrame] = useState(false);
   
   // เก็บข้อมูลจาก API เพื่อให้ส่วนแสดงผลอัปเดตตามข้อมูลล่าสุด
   // summary, cameraLog และ cameraHistory ถูกโหลดไว้ แต่ยังไม่ได้ใช้แสดงผลใน UI ปัจจุบัน
@@ -118,6 +122,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     setCameraVideoError(false);
   }, [cameraId]);
 
+  // รีเฟรชภาพจากกล้องและการตรวจจับ YOLO อัตโนมัติทุก 1 นาที (60,000 ms)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCameraFrameTime(Date.now());
+      getLatestCameraLog(cameraId).then(setCameraLog).catch(console.error);
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [cameraId]);
+
+  // สั่งให้อนุมานและรีเฟรชภาพ BBox ทันทีด้วยตนเอง
+  const handleRefreshCameraFrame = async () => {
+    setIsRefreshingFrame(true);
+    setCameraVideoError(false);
+    setCameraFrameTime(Date.now());
+    try {
+      const cam = await getLatestCameraLog(cameraId);
+      setCameraLog(cam);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTimeout(() => setIsRefreshingFrame(false), 500);
+    }
+  };
+
   // คำนวณความเสี่ยงใหม่เมื่อประวัติสต็อก ผลพยากรณ์ หรือค่าตั้งค่าที่เกี่ยวข้องเปลี่ยน
   useEffect(() => {
     const checkRisk = async () => {
@@ -147,6 +175,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   const runForecast = async () => {
     setLoading(true);
     setStatusMsg('Queuing Forecast Job...');
+    setStatusSubMsg('Please wait, preparing forecast request...');
     // ล้างผลเก่าเพื่อไม่ให้ผู้ใช้เข้าใจผิดว่าเป็นผลจากคำขอครั้งใหม่
     setForecastData(null);
     try {
@@ -157,7 +186,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       });
       
       const jobId = res.job_id;
-      setStatusMsg('Model Training in Progress...');
+      setStatusMsg('Prediction in Progress...');
+      setStatusSubMsg('Please wait, ARIMA is predicting stock values...');
       
       // ตรวจสถานะงานเป็นระยะ เพราะ backend ประมวลผลแบบ asynchronous
       const poll = setInterval(async () => {
@@ -169,11 +199,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
             await loadDashboardData();
             setLoading(false);
             setStatusMsg('');
+            setStatusSubMsg('');
           } else if (statusRes.status === 'failed') {
             clearInterval(poll);
             alert("Forecast failed: " + statusRes.error);
             setLoading(false);
             setStatusMsg('');
+            setStatusSubMsg('');
           }
         } catch (pollErr) {
           console.error(pollErr);
@@ -186,6 +218,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
         if (loading) {
           setLoading(false);
           setStatusMsg('');
+          setStatusSubMsg('');
           alert("Forecast timed out.");
         }
       }, 60000);
@@ -194,6 +227,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       alert("Failed to queue forecast: " + (err.response?.data?.detail || err.message));
       setLoading(false);
       setStatusMsg('');
+      setStatusSubMsg('');
     }
   };
 
@@ -201,6 +235,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   const runTraining = async () => {
     setLoading(true);
     setStatusMsg('Queuing Training Job...');
+    setStatusSubMsg('Please wait, preparing training request...');
     try {
       const res = await queueTraining({
         product: PRODUCT_NAME,
@@ -210,6 +245,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       
       const jobId = res.job_id;
       setStatusMsg('Model Training in Progress...');
+      setStatusSubMsg('Please wait, ARIMA is fitting the model...');
       
       // งานฝึกโมเดลทำงานเบื้องหลัง จึงตรวจสอบสถานะทุก 2 วินาที
       const poll = setInterval(async () => {
@@ -220,11 +256,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
             alert("Training completed successfully!");
             setLoading(false);
             setStatusMsg('');
+            setStatusSubMsg('');
           } else if (statusRes.status === 'failed') {
             clearInterval(poll);
             alert("Training failed: " + statusRes.error);
             setLoading(false);
             setStatusMsg('');
+            setStatusSubMsg('');
           }
         } catch (pollErr) {
           console.error(pollErr);
@@ -237,6 +275,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
         if (loading) {
           setLoading(false);
           setStatusMsg('');
+          setStatusSubMsg('');
           alert("Training timed out.");
         }
       }, 60000);
@@ -245,6 +284,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       alert("Failed to queue training: " + (err.response?.data?.detail || err.message));
       setLoading(false);
       setStatusMsg('');
+      setStatusSubMsg('');
     }
   };
 
@@ -363,7 +403,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
               <div className="flex flex-col items-center gap-3 bg-white p-6 rounded-xl shadow-xl border border-gray-100">
                 <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                 <p className="font-semibold text-blue-700 text-lg">{statusMsg}</p>
-                <p className="text-xs text-gray-500">Please wait, ARIMA is fitting the model...</p>
+                <p className="text-xs text-gray-500">{statusSubMsg || 'Please wait, ARIMA is predicting stock values...'}</p>
               </div>
             </div>
           )}
@@ -463,6 +503,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                 </div>
               </div>
 
+              {/* ข้อมูลโมเดลและตัวชี้วัดที่ใช้พยากรณ์จริง */}
+              {forecastData && (
+                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                    <h3 className="font-semibold text-gray-800 flex items-center gap-2 text-sm">
+                      <Settings className="w-4 h-4 text-emerald-600" /> Active Forecast Model
+                    </h3>
+                    <span className="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Latest Trained Model
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-3 bg-gray-50 p-3 rounded-lg border border-gray-100 text-center">
+                    <div>
+                      <div className="text-xs text-gray-500">Model Order</div>
+                      <div className="font-bold text-blue-700 text-sm mt-0.5">{forecastData.model_name || "ARIMA(2,0,2)"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">MAE (Error)</div>
+                      <div className="font-bold text-gray-800 text-sm mt-0.5">
+                        {forecastData.metrics?.mae ? `${forecastData.metrics.mae.toFixed(2)} Box` : "-"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">MAPE (Error %)</div>
+                      <div className="font-bold text-emerald-600 text-sm mt-0.5">
+                        {forecastData.metrics?.mape ? `${forecastData.metrics.mape.toFixed(2)}%` : "-"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Model File</div>
+                      <div className="font-semibold text-slate-700 text-xs mt-1 truncate" title={forecastData.model_uri || "local"}>
+                        {forecastData.model_uri ? forecastData.model_uri.split('/').pop() : "arima_Frozen_Seafood.pkl"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
             </div>
 
@@ -470,52 +547,140 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
             <div className="space-y-6">
               <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                    <Camera className="w-4 h-4" /> Live Camera View
-                  </h3>
                   <div className="flex items-center gap-2">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-                    </span>
-                    <span className="text-xs text-gray-500 font-medium">LIVE</span>
+                    <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-blue-600" /> Live Camera View
+                    </h3>
+                  </div>
+                  
+                  {/* ตัวสลับโหมด: YOLO BBox (AI) หรือ Raw Video */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200 text-xs">
+                      <button
+                        onClick={() => { setCameraMode('yolo'); setCameraVideoError(false); }}
+                        className={`px-2.5 py-1 rounded-md font-medium transition flex items-center gap-1.5 ${
+                          cameraMode === 'yolo' 
+                            ? 'bg-white text-blue-700 shadow-xs' 
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                        YOLO BBox
+                      </button>
+                      <button
+                        onClick={() => { setCameraMode('video'); setCameraVideoError(false); }}
+                        className={`px-2.5 py-1 rounded-md font-medium transition flex items-center gap-1.5 ${
+                          cameraMode === 'video' 
+                            ? 'bg-white text-blue-700 shadow-xs' 
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        <Video className="w-3.5 h-3.5 text-gray-500" />
+                        Raw Video
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={handleRefreshCameraFrame}
+                      disabled={isRefreshingFrame}
+                      title="กดรีเฟรชการตรวจจับ YOLO ทันที (ปกติอัปเดตทุก 1 นาที)"
+                      className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded border border-gray-200 transition"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingFrame ? 'animate-spin text-blue-600' : ''}`} />
+                    </button>
                   </div>
                 </div>
                 
-                <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-gray-800">
-                  <video
-                    key={cameraId}
-                    src={CAMERA_SOURCES[cameraId].src}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    controls
-                    preload="auto"
-                    aria-label={`${CAMERA_SOURCES[cameraId].label} camera feed`}
-                    onError={() => setCameraVideoError(true)}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
+                <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-gray-800 shadow-inner">
+                  {cameraMode === 'yolo' ? (
+                    <>
+                      <img
+                        key={`${cameraId}-${cameraFrameTime}`}
+                        src={getCameraFrameUrl(cameraId, cameraFrameTime)}
+                        alt={`YOLO Detection - ${CAMERA_SOURCES[cameraId].label}`}
+                        onError={() => setCameraVideoError(true)}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                      
+                      {/* แถบระบุสถานะ YOLO BBox */}
+                      <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-emerald-400 text-xs px-2.5 py-1 rounded-md font-medium flex items-center gap-1.5 border border-emerald-500/30">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        YOLO11 BBox (อัปเดตทุก 1 นาที)
+                      </div>
+
+                      {/* จำนวนกล่องที่ตรวจจับได้จริง */}
+                      {cameraLog?.detected_boxes !== undefined && (
+                        <div className="absolute top-3 right-3 bg-blue-900/80 backdrop-blur-md text-white text-xs px-2.5 py-1 rounded-md font-semibold border border-blue-400/40">
+                          📦 ตรวจพบ {cameraLog.detected_boxes} กล่อง
+                        </div>
+                      )}
+
+                      <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded">
+                        {CAMERA_SOURCES[cameraId].label}
+                      </div>
+
+                      <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-gray-300 text-xs px-2 py-1 rounded font-mono">
+                        อัปเดต: {new Date(cameraFrameTime).toLocaleTimeString()}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <video
+                        key={cameraId}
+                        src={CAMERA_SOURCES[cameraId].src}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        controls
+                        preload="auto"
+                        aria-label={`${CAMERA_SOURCES[cameraId].label} camera feed`}
+                        onError={() => setCameraVideoError(true)}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                      <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded">
+                        {CAMERA_SOURCES[cameraId].label}
+                      </div>
+                      <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded font-mono">
+                        {new Date().toLocaleTimeString()}
+                      </div>
+                    </>
+                  )}
+
                   {cameraVideoError && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 text-white">
                       <Camera className="w-8 h-8 opacity-70" />
                       <p className="px-4 text-center text-sm">
-                        Unable to load video for {CAMERA_SOURCES[cameraId].label}.
+                        Unable to load feed for {CAMERA_SOURCES[cameraId].label}.
                       </p>
                     </div>
                   )}
-                  
-                  {/* Overlay ข้อมูลกล้อง */}
-                  <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded">
-                    {CAMERA_SOURCES[cameraId].label}
-                  </div>
-                  <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded font-mono">
-                    {new Date().toLocaleTimeString()}
-                  </div>
                 </div>
                 
-                <div className="mt-4 text-xs text-gray-500">
-                  <p><strong>Note:</strong> Playing the selected camera video feed.</p>
+                <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+                  <p>
+                    {cameraMode === 'yolo' ? (
+                      <span className="flex items-center gap-1.5 text-slate-600">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        แสดงกรอบ BBox จริงจากโมเดล YOLO (แคชและอัปเดตอัตโนมัติรอบละ 1 นาที)
+                      </span>
+                    ) : (
+                      <span>Playing the selected camera video feed without detection overlay.</span>
+                    )}
+                  </p>
+                  {cameraMode === 'yolo' && (
+                    <button
+                      onClick={handleRefreshCameraFrame}
+                      disabled={isRefreshingFrame}
+                      className="text-blue-600 hover:text-blue-800 transition font-medium text-xs flex items-center gap-1"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isRefreshingFrame ? 'animate-spin' : ''}`} />
+                      รีเฟรชตอนนี้
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

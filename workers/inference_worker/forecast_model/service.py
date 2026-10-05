@@ -6,6 +6,7 @@
 """
 import logging
 import os
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import select
@@ -135,6 +136,19 @@ class ForecastingService:
                 exog_data = monthly_df[exog_cols] if (has_exog and exog_cols) else None
                 full_model = loaded_model.apply(monthly_df['quantity'], exog=exog_data)
                 logger.info("Loaded and applied model from %s with order ARIMA%s", model_path, actual_order)
+
+                # Try loading saved metrics from accompanying JSON
+                metrics_path = Path(model_path).with_suffix(".json")
+                if metrics_path.exists():
+                    try:
+                        import json
+                        m_data = json.loads(metrics_path.read_text(encoding="utf-8"))
+                        mae = float(m_data.get("mae", 0.0))
+                        rmse = float(m_data.get("rmse", 0.0))
+                        mape = float(m_data.get("mape", 0.0))
+                        logger.info("Loaded metrics from %s: MAE=%.2f, RMSE=%.2f, MAPE=%.2f%%", metrics_path, mae, rmse, mape)
+                    except Exception as err_m:
+                        logger.warning("Could not read metrics from %s: %s", metrics_path, err_m)
             except Exception as e:
                 logger.warning("Failed to load/apply model from %s: %s", model_path, e)
                 
@@ -187,13 +201,17 @@ class ForecastingService:
         model_order_str = f"ARIMA({actual_order[0]},{actual_order[1]},{actual_order[2]})"
         api_results = []
         for dt, pred, lower, upper in zip(future_dates, future_forecast, conf_int.iloc[:, 0], conf_int.iloc[:, 1]):
-            # 1. Save to new arima_forecasts table
+            pred_int = int(round(float(pred)))
+            lower_int = max(0, int(round(float(lower))))
+            upper_int = max(0, int(round(float(upper))))
+
+            # 1. Save to new arima_forecasts table (integer box count)
             af = ArimaForecast(
                 time=dt.date(),
                 product=req.product,
-                total_boxes=float(pred),
-                lower_bound=float(lower),
-                upper_bound=float(upper),
+                total_boxes=float(pred_int),
+                lower_bound=float(lower_int),
+                upper_bound=float(upper_int),
                 model_order=model_order_str
             )
             self.session.add(af)
@@ -202,19 +220,19 @@ class ForecastingService:
             fr = ForecastResult(
                 product=req.product,
                 forecast_date=dt.date(),
-                predicted_value=float(pred),
-                lower_bound=float(lower),
-                upper_bound=float(upper),
-                model_name=f"ARIMA({req.p},{req.d},{req.q})",
+                predicted_value=float(pred_int),
+                lower_bound=float(lower_int),
+                upper_bound=float(upper_int),
+                model_name=model_order_str,
                 model_version=model_uri
             )
             self.session.add(fr)
 
             api_results.append(ForecastDataPoint(
                 date=dt.date(),
-                predicted_value=float(pred),
-                lower_bound=float(lower),
-                upper_bound=float(upper)
+                predicted_value=pred_int,
+                lower_bound=lower_int,
+                upper_bound=upper_int
             ))
             
         await self.session.commit()
@@ -222,7 +240,7 @@ class ForecastingService:
         metrics = ForecastMetrics(mae=mae, rmse=rmse, mape=mape)
         return ForecastResponse(
             product=req.product,
-            model_name="ARIMA_Inference",
+            model_name=model_order_str,
             metrics=metrics,
             forecast=api_results,
             model_uri=model_uri

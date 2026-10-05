@@ -29,9 +29,8 @@ services:
     networks:
       - ai-network
 
-  # PostgreSQL ภายในเครื่อง (เปิดใช้เฉพาะเมื่อต้องการรันฐานข้อมูล local: docker compose --profile local-db up -d)
+  # PostgreSQL ภายในเครื่อง (ฐานข้อมูลหลักของระบบ)
   postgres:                           # เข้า shell ได้ด้วย docker compose exec postgres psql -U admin -d my_database
-    profiles: ["local-db"]
     image: postgres:15-alpine         # ใช้ PostgreSQL 15 เป็นฐานข้อมูลหลักของระบบ
     restart: unless-stopped
     environment:                      # กำหนดบัญชีและฐานข้อมูลเริ่มต้นสำหรับ local development
@@ -64,13 +63,16 @@ services:
     command: ["python", "/workers/seed_inventory.py"]
     restart: "no"
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - STORAGE_ROOT=/app/storage
       - BACKEND_SRC=/app/src
     volumes:
       - ./workers:/workers:ro
       - ./backend/src:/app/src:ro
       - ./storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - ai-network
 
@@ -132,7 +134,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - REDIS_URL=redis://redis:6379
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
@@ -145,7 +147,7 @@ services:
       - WATCHFILES_FORCE_POLLING=true
     volumes:
       - ./backend/src:/app/src
-      - ./storage/logs:/app/logs
+      - ./storage:/app/storage
     depends_on:
       redis:
         condition: service_healthy
@@ -182,7 +184,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
     volumes:
@@ -226,7 +228,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
@@ -272,7 +274,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
       - MINIO_ENDPOINT=minio:9000
@@ -322,7 +324,7 @@ services:
     environment:
       - TZ=Asia/Bangkok               # cron ใน data_worker.py อิงเวลานี้
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
@@ -368,10 +370,12 @@ services:
       - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
     command: >
       mlflow server
-      --backend-store-uri ${DATABASE_URL:-postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres}
+      --backend-store-uri ${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       --default-artifact-root s3://mlflow-artifacts
       --host 0.0.0.0
     depends_on:
+      postgres:
+        condition: service_healthy
       minio:
         condition: service_healthy
       minio-init:
