@@ -1,0 +1,7 @@
+path: ./storage/data/warehouse_box_dataset
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 1
+names: ['delivery_box']
