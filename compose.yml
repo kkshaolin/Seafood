@@ -78,7 +78,8 @@ services:
 
   # MinIO เก็บไฟล์ผ่าน API ที่เข้ากันได้กับ S3 เช่น dataset และ model artifacts
   minio:
-    image: minio/minio:latest
+    image: bitnami/minio:latest
+    #image: minio/minio:latest
     user: "0"
     ports: 
       - "9000:9000"       # พอร์ต 9000 เปิด S3 API ให้ backend/workers อ่านและเขียน object
@@ -105,7 +106,8 @@ services:
 
   # สร้าง Buckets เริ่มต้นใน MinIO ให้พร้อมใช้โดยอัตโนมัติ
   minio-init:
-    image: minio/minio:latest
+    image: bitnami/minio:latest
+    #image: minio/minio:latest
     depends_on:
       minio:
         condition: service_healthy
