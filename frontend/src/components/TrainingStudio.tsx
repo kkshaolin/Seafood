@@ -2,17 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, ExternalLink, Box, TrendingUp, PlayCircle, Settings, 
   CheckCircle2, AlertCircle, Loader2, Layers, Table, RefreshCw, 
-  Sliders, ShieldCheck, Database, Camera
+  Sliders, ShieldCheck, Database, Camera, Cloud, Download, Upload, HardDrive, Check, Share2
 } from 'lucide-react';
 import { queueTraining, queueYoloTraining, getForecastJobStatus } from '../api/forecast';
 import { getStockHistory } from '../api/stock';
+import { getHfStatus, pushToHf, pullFromHf, checkOrPullHf, HuggingFaceStatusResponse } from '../api/huggingface';
 
 interface TrainingStudioProps {
   onBack: () => void;
 }
 
 export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState<'yolo' | 'arima'>('yolo');
+  const [activeTab, setActiveTab] = useState<'yolo' | 'arima' | 'hf'>('yolo');
 
   // -------------------------------------------------------------
   // ARIMA State
@@ -41,7 +42,68 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
   const [yoloDataset, setYoloDataset] = useState<string>('box_v1');
   const [selectedCamera, setSelectedCamera] = useState<'ZoneA' | 'ZoneB'>('ZoneA');
 
-  // โหลดประวัติสต็อกสำหรับตาราง ARIMA
+  // -------------------------------------------------------------
+  // Hugging Face Model Hub State
+  // -------------------------------------------------------------
+  const [hfStatus, setHfStatus] = useState<HuggingFaceStatusResponse | null>(null);
+  const [hfLoading, setHfLoading] = useState<boolean>(false);
+  const [hfActionLoading, setHfActionLoading] = useState<string | null>(null);
+  const [hfMessage, setHfMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const fetchHfStatus = async () => {
+    setHfLoading(true);
+    try {
+      const res = await getHfStatus();
+      setHfStatus(res);
+    } catch (err: any) {
+      console.error("Failed to load HF status:", err);
+    } finally {
+      setHfLoading(false);
+    }
+  };
+
+  const handlePushHf = async () => {
+    setHfActionLoading('push');
+    setHfMessage({ text: 'กำลังอัปโหลดโมเดลขึ้น Hugging Face Hub (kkshaolin/yolo_box)...', type: 'info' });
+    try {
+      const res = await pushToHf();
+      setHfMessage({ text: res.message || 'อัปโหลดขึ้น Hugging Face Hub สำเร็จ!', type: 'success' });
+      await fetchHfStatus();
+    } catch (err: any) {
+      setHfMessage({ text: `เกิดข้อผิดพลาดในการ Push: ${err.response?.data?.detail || err.message}`, type: 'error' });
+    } finally {
+      setHfActionLoading(null);
+    }
+  };
+
+  const handlePullHf = async () => {
+    setHfActionLoading('pull');
+    setHfMessage({ text: 'กำลังดาวน์โหลดโมเดลจาก Hugging Face Hub ลงเครื่องและ MinIO...', type: 'info' });
+    try {
+      const res = await pullFromHf(true);
+      setHfMessage({ text: res.message || 'ดาวน์โหลดและซิงค์โมเดลสำเร็จ!', type: 'success' });
+      await fetchHfStatus();
+    } catch (err: any) {
+      setHfMessage({ text: `เกิดข้อผิดพลาดในการ Pull: ${err.response?.data?.detail || err.message}`, type: 'error' });
+    } finally {
+      setHfActionLoading(null);
+    }
+  };
+
+  const handleCheckHf = async () => {
+    setHfActionLoading('check');
+    try {
+      const res = await checkOrPullHf();
+      setHfMessage({ text: res.message || 'ตรวจสอบสถานะ Cache สำเร็จ', type: 'success' });
+      await fetchHfStatus();
+    } catch (err: any) {
+      setHfMessage({ text: `ตรวจสอบไม่สำเร็จ: ${err.response?.data?.detail || err.message}`, type: 'error' });
+    } finally {
+      setHfActionLoading(null);
+    }
+  };
+
+  // โหลดประวัติสต็อกสำหรับตาราง ARIMA และสถานะ HF
   const fetchStockTable = async () => {
     setTableLoading(true);
     try {
@@ -58,6 +120,7 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
 
   useEffect(() => {
     fetchStockTable();
+    fetchHfStatus();
   }, []);
 
   // -------------------------------------------------------------
@@ -219,16 +282,36 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
             </p>
           </div>
         </div>
+
+        {/* Hugging Face Hub Quick Status Badge */}
+        <div className="hidden sm:flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 transition">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>HF Repo: <strong className="font-semibold text-slate-900">{hfStatus?.repo_id || 'kkshaolin/yolo_box'}</strong></span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">Public</span>
+          </div>
+          <button 
+            onClick={() => setActiveTab('hf')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition ${
+              activeTab === 'hf' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Cloud className="w-3.5 h-3.5 text-amber-500" />
+            Model Registry
+          </button>
+        </div>
       </header>
 
       {/* ---------------- Main Content Tabs ---------------- */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
         
         {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-200 gap-4">
+        <div className="flex border-b border-slate-200 gap-4 overflow-x-auto">
           <button
             onClick={() => setActiveTab('yolo')}
-            className={`pb-3 px-4 font-semibold text-sm flex items-center gap-2 border-b-2 transition ${
+            className={`pb-3 px-4 font-semibold text-sm flex items-center gap-2 border-b-2 whitespace-nowrap transition ${
               activeTab === 'yolo'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -238,13 +321,23 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
           </button>
           <button
             onClick={() => setActiveTab('arima')}
-            className={`pb-3 px-4 font-semibold text-sm flex items-center gap-2 border-b-2 transition ${
+            className={`pb-3 px-4 font-semibold text-sm flex items-center gap-2 border-b-2 whitespace-nowrap transition ${
               activeTab === 'arima'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             <TrendingUp className="w-4 h-4" /> ARIMA Time Series Forecasting Training
+          </button>
+          <button
+            onClick={() => setActiveTab('hf')}
+            className={`pb-3 px-4 font-semibold text-sm flex items-center gap-2 border-b-2 whitespace-nowrap transition ${
+              activeTab === 'hf'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Cloud className="w-4 h-4 text-amber-500" /> Hugging Face Model Hub (Hybrid Registry)
           </button>
         </div>
 
@@ -638,6 +731,338 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
                     </>
                   )}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 3: HUGGING FACE MODEL HUB (HYBRID CACHE-ASIDE)        */}
+        {/* ========================================================= */}
+        {activeTab === 'hf' && (
+          <div className="space-y-6">
+            {/* Header Banner: Hybrid Cache-Aside Architecture */}
+            <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-yellow-500/10 border border-amber-200 rounded-2xl p-6">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                      Hybrid Cache-Aside
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Public Repository
+                    </span>
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    <Cloud className="w-6 h-6 text-amber-600" /> Hugging Face Model Hub Registry
+                  </h2>
+                  <p className="text-sm text-slate-600 max-w-2xl">
+                    ระบบฝากและกระจายโมเดลแบบ <strong>Hybrid Cache-Aside</strong> โดยใช้ <strong>Hugging Face Hub ({hfStatus?.repo_id || 'kkshaolin/yolo_box'})</strong> เป็นศูนย์กลางแจกจ่ายโมเดลเวอร์ชันทางการ ในขณะที่การรัน Inference ปกติทำงานผ่าน <strong>MinIO และ Local Cache</strong> ด้วยความเร็วระดับ &lt;1ms
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <a
+                    href={`https://huggingface.co/${hfStatus?.repo_id || 'kkshaolin/yolo_box'}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-800 rounded-xl font-medium text-sm flex items-center gap-2 shadow-xs hover:shadow transition"
+                  >
+                    <span>เปิด Hugging Face Hub</span>
+                    <ExternalLink className="w-4 h-4 text-slate-500" />
+                  </a>
+                  <button
+                    onClick={fetchHfStatus}
+                    disabled={hfLoading}
+                    className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium flex items-center gap-1.5 transition"
+                    title="รีเฟรชข้อมูลสถานะ"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${hfLoading ? 'animate-spin text-blue-600' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Message / Notification */}
+              {hfMessage && (
+                <div className={`mt-4 p-3.5 rounded-xl text-sm flex items-center justify-between border ${
+                  hfMessage.type === 'success' 
+                    ? 'bg-emerald-50 text-emerald-900 border-emerald-200' 
+                    : hfMessage.type === 'error'
+                    ? 'bg-rose-50 text-rose-900 border-rose-200'
+                    : 'bg-blue-50 text-blue-900 border-blue-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {hfMessage.type === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />}
+                    {hfMessage.type === 'error' && <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />}
+                    {hfMessage.type === 'info' && <Loader2 className="w-5 h-5 animate-spin text-blue-600 shrink-0" />}
+                    <span>{hfMessage.text}</span>
+                  </div>
+                  <button 
+                    onClick={() => setHfMessage(null)}
+                    className="text-xs font-bold text-slate-400 hover:text-slate-600 ml-4"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Architecture Comparison Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {/* Local Storage Card */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-semibold text-slate-800 text-sm">
+                    <HardDrive className="w-4 h-4 text-blue-600" /> Local Container Disk
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-50 text-blue-700">
+                    &lt;1ms Latency
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  ไฟล์โมเดลในเครื่อง <code>storage/models/</code> สำหรับโหลดเข้าหน่วยความจำของ FastAPI และ Worker
+                </p>
+                <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">YOLO Model:</span>
+                    <span className="font-semibold text-slate-800">
+                      {hfStatus?.local.yolo_box.exists ? `✅ ${hfStatus.local.yolo_box.size_mb} MB` : '❌ ขาด'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">ARIMA Model:</span>
+                    <span className="font-semibold text-slate-800">
+                      {hfStatus?.local.arima_model.exists ? `✅ ${hfStatus.local.arima_model.size_kb} KB` : '❌ ขาด'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">ARIMA Metrics:</span>
+                    <span className="font-semibold text-slate-800">
+                      {hfStatus?.local.arima_metrics.exists ? '✅ มีข้อมูล' : '❌ ขาด'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* MinIO Object Storage Card */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-semibold text-slate-800 text-sm">
+                    <Database className="w-4 h-4 text-teal-600" /> MinIO S3 Object Storage
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                    hfStatus?.minio.connected ? 'bg-teal-50 text-teal-700' : 'bg-rose-50 text-rose-700'
+                  }`}>
+                    {hfStatus?.minio.connected ? 'Connected' : 'Offline'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Bucket <code>models</code> เก็บประวัติโมเดลทุก Run จากการฝึก และเป็นคลังโมเดลระดับเครื่องเซิร์ฟเวอร์
+                </p>
+                <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">Bucket:</span>
+                    <span className="font-semibold text-slate-800">{hfStatus?.minio.bucket || 'models'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">Total Artifacts:</span>
+                    <span className="font-semibold text-slate-800">{hfStatus?.minio.objects_count || 0} objects</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">S3 Endpoint:</span>
+                    <span className="font-semibold text-slate-800">localhost:9000</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hugging Face Hub Card */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-semibold text-slate-800 text-sm">
+                    <Cloud className="w-4 h-4 text-amber-600" /> Hugging Face Model Hub
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                    hfStatus?.huggingface.connected ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                  }`}>
+                    {hfStatus?.huggingface.connected ? 'Hub Ready' : 'Disconnected'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  ศูนย์กลางแจกจ่ายโมเดล (Remote Registry) สำหรับนักพัฒนาและสภาพแวดล้อมใหม่
+                </p>
+                <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">Repository:</span>
+                    <span className="font-semibold text-blue-600 truncate max-w-[150px]">
+                      {hfStatus?.repo_id || 'kkshaolin/yolo_box'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">Remote Files:</span>
+                    <span className="font-semibold text-slate-800">
+                      {hfStatus?.huggingface.files.length || 0} files
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">Access:</span>
+                    <span className="font-semibold text-emerald-700">Public (No Token Needed to Pull)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Model Files Table & Action Center */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                    <Box className="w-5 h-5 text-indigo-600" /> รายการโมเดลและสถานะการซิงค์ (Model Assets)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    ตรวจสอบไฟล์ที่ซิงค์ระหว่าง Local Runtime, MinIO Storage และ Hugging Face Remote Hub
+                  </p>
+                </div>
+
+                {/* Main Action Buttons */}
+                <div className="flex items-center gap-3">
+                  {/* Pull Button */}
+                  <button
+                    onClick={handlePullHf}
+                    disabled={hfActionLoading !== null}
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs transition"
+                  >
+                    {hfActionLoading === 'pull' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> กำลังดาวน์โหลด...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" /> Sync / Pull from Hub
+                      </>
+                    )}
+                  </button>
+
+                  {/* Push Button */}
+                  <button
+                    onClick={handlePushHf}
+                    disabled={hfActionLoading !== null}
+                    className="px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs transition"
+                  >
+                    {hfActionLoading === 'push' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> กำลังอัปโหลด...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" /> Publish / Push to Hub
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="py-3.5 px-6">โมเดล / หน้าที่</th>
+                      <th className="py-3.5 px-6">ไฟล์บนเครื่อง (Local)</th>
+                      <th className="py-3.5 px-6">MinIO Bucket (S3)</th>
+                      <th className="py-3.5 px-6">Hugging Face Hub (Remote)</th>
+                      <th className="py-3.5 px-6 text-right">สถานะความพร้อม</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {/* Row 1: YOLO Box Detection */}
+                    <tr className="hover:bg-slate-50/50 transition">
+                      <td className="py-4 px-6">
+                        <div className="font-bold text-slate-900">YOLO11n Box Detection</div>
+                        <div className="text-[11px] text-slate-500">ตรวจจับกล่องสินค้าอาหารทะเลจากกล้อง Zone A/B</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-slate-700">yolo11n.pt</span>
+                        <div className="text-[11px] text-slate-500">{hfStatus?.local.yolo_box.size_mb || 5.35} MB</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-slate-700">yolo/base/yolo11n.pt</span>
+                        <div className="text-[11px] text-emerald-600 font-medium">Ready in MinIO</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-blue-600">yolo/yolo11n.pt</span>
+                        <div className="text-[11px] text-slate-500">kkshaolin/yolo_box</div>
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <Check className="w-3 h-3" /> Synced & Active
+                        </span>
+                      </td>
+                    </tr>
+
+                    {/* Row 2: ARIMA Frozen Seafood */}
+                    <tr className="hover:bg-slate-50/50 transition">
+                      <td className="py-4 px-6">
+                        <div className="font-bold text-slate-900">ARIMA Demand Forecaster</div>
+                        <div className="text-[11px] text-slate-500">ทำนายสต็อกกล่องสินค้า Frozen Seafood ล่วงหน้า</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-slate-700">arima_Frozen_Seafood.pkl</span>
+                        <div className="text-[11px] text-slate-500">{hfStatus?.local.arima_model.size_kb || 199.6} KB</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-slate-700">arima/Frozen_Seafood/latest/model.pkl</span>
+                        <div className="text-[11px] text-emerald-600 font-medium">Ready in MinIO</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-blue-600">arima/arima_Frozen_Seafood.pkl</span>
+                        <div className="text-[11px] text-slate-500">kkshaolin/yolo_box</div>
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <Check className="w-3 h-3" /> Synced & Active
+                        </span>
+                      </td>
+                    </tr>
+
+                    {/* Row 3: ARIMA Metrics */}
+                    <tr className="hover:bg-slate-50/50 transition">
+                      <td className="py-4 px-6">
+                        <div className="font-bold text-slate-900">ARIMA Evaluation Metrics</div>
+                        <div className="text-[11px] text-slate-500">Order ARIMA(2,0,2), ค่า MAE, RMSE, MAPE</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-slate-700">arima_Frozen_Seafood.json</span>
+                        <div className="text-[11px] text-slate-500">Config & Parameters</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-slate-700">arima/Frozen_Seafood/latest/metrics.json</span>
+                        <div className="text-[11px] text-emerald-600 font-medium">Ready in MinIO</div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-mono text-blue-600">arima/arima_Frozen_Seafood.json</span>
+                        <div className="text-[11px] text-slate-500">kkshaolin/yolo_box</div>
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <Check className="w-3 h-3" /> Synced & Active
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Bottom Instructions Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-800">💡 CLI Command:</span>
+                  <code className="bg-white px-2.5 py-1 rounded border border-slate-200 text-slate-700">
+                    python scripts/sync_huggingface.py --action pull
+                  </code>
+                </div>
+                <div className="text-slate-500">
+                  นักพัฒนาที่ Clone โค้ดใหม่ สามารถรันคำสั่งด้านซ้ายหรือกดปุ่ม Sync เพื่อเริ่มใช้งานได้ทันที
+                </div>
               </div>
             </div>
           </div>

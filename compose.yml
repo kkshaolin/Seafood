@@ -147,6 +147,8 @@ services:
       - OTEL_SERVICE_NAME=fastapi_backend
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - WATCHFILES_FORCE_POLLING=true
+      - HF_REPO_ID=${HF_REPO_ID:-kkshaolin/yolo_box}
+      - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       - ./backend/src:/app/src
       - ./storage:/app/storage
@@ -189,6 +191,8 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
+      - HF_REPO_ID=${HF_REPO_ID:-kkshaolin/yolo_box}
+      - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       - ./storage:/app/storage
       - ./workers:/app
@@ -237,6 +241,8 @@ services:
       - MINIO_SECURE=false
       - DAILY_SAMPLING_ENABLED=false
       - STORAGE_ROOT=/app/storage
+      - HF_REPO_ID=${HF_REPO_ID:-kkshaolin/yolo_box}
+      - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       - ./storage:/app/storage
       - ./workers:/app
@@ -283,6 +289,8 @@ services:
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - MINIO_SECURE=false
+      - HF_REPO_ID=${HF_REPO_ID:-kkshaolin/yolo_box}
+      - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       - ./storage:/app/storage
       - ./workers:/app

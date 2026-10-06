@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
     MINIO_BUCKET_NAME: str = "ai-ecosystem-data"
 
+    # ค่า Hugging Face Model Hub (Hybrid Cache-Aside)
+    HF_REPO_ID: str = "kkshaolin/yolo_box"
+    HF_TOKEN: str = ""
+
     # CORS Origins (สามารถระบุเป็น list หรือ comma-separated string)
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",

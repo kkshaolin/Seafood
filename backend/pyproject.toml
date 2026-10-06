@@ -30,7 +30,12 @@ dependencies = [
     "opentelemetry-exporter-otlp",
     "greenlet>=3.5.3",
     "statsmodels>=0.15.0",
+<<<<<<< HEAD
+    "huggingface-hub>=0.20.0",
+    "ultralytics>=8.0.0",
+=======
     "ultralytics",
+>>>>>>> 3e768581f38f76e08ac2b9943131dc7949558ab5
 ]
 
 [dependency-groups]

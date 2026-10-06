@@ -177,6 +177,8 @@ from api.sampling import router as sampling_router
 app.include_router(sampling_router, prefix="/api")
 from api.camera import router as camera_router
 app.include_router(camera_router, prefix="/api")
+from api.huggingface_router import router as hf_router
+app.include_router(hf_router, prefix="/api")
 
 @app.get("/health", tags=["system"], summary="Comprehensive System Health Check")
 async def health_check(session: AsyncSession = Depends(get_db_session)) -> dict:
