@@ -20,6 +20,13 @@ export const getCameraFrameUrl = (cameraId: string, timestamp?: number, force: b
   return `${base}/camera/${cameraId}/frame${qs ? `?${qs}` : ''}`;
 };
 
+export const getCameraSampledFrameUrl = (cameraId: string, key: string, timestamp?: number): string => {
+  const base = import.meta.env.VITE_API_BASE_URL || '/api';
+  const query = new URLSearchParams({ key });
+  if (timestamp) query.set('t', timestamp.toString());
+  return `${base}/camera/${cameraId}/sampled-frame?${query.toString()}`;
+};
+
 export const uploadCameraImage = async (cameraId: string, file: File) => {
   const formData = new FormData();
   formData.append('file', file);

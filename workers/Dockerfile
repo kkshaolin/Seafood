@@ -25,6 +25,12 @@ RUN uv pip install --system --no-cache-dir -r requirements.txt
 # Stage 2: Production
 FROM python:3.11-slim
 
+# ติดตั้ง libgl1 และ libglib2.0-0 สำหรับ OpenCV runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # ตั้งค่า Environment Variables
 ENV PYTHONUNBUFFERED=1 \
     TZ=Asia/Bangkok \

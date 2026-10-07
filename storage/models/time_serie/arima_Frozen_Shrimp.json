@@ -1,0 +1,37 @@
+{
+  "mae": 5.605766242583594,
+  "rmse": 7.286268765630946,
+  "mape": 11.540869774945824,
+  "aic": 120.38394844704008,
+  "bic": 126.71802420086452,
+  "p": 1,
+  "d": 0,
+  "q": 1,
+  "model_order": "ARIMA(1,0,1)",
+  "auto_order_used": false,
+  "forecast_horizon": 3,
+  "n_train_months": 36,
+  "product": "Frozen Shrimp",
+  "data_source": "postgresql",
+  "eval_method": "chronological_holdout_80_20",
+  "baselines": {
+    "naive": {
+      "name": "Naïve (Persistence)",
+      "mae": 6.610542973676603,
+      "rmse": 8.47373880367166,
+      "mape": 13.571292754604661
+    },
+    "seasonal_naive": {
+      "name": "Seasonal Naïve (m=12)",
+      "mae": 11.300331242399013,
+      "rmse": 12.97320927657518,
+      "mape": 20.38535879593408
+    }
+  },
+  "evaluation_notes": {
+    "mape_limitation": "MAPE is sensitive to near-zero actual values and undefined when actual is zero. MAE and RMSE provide more robust evaluation for inventory series.",
+    "zero_actuals_present": false
+  },
+  "trained_at": "2026-10-07T03:00:21.273275+00:00",
+  "local_model_path": "C:\\Users\\kitti\\AIE\\ecosystem\\I_LoveSeafood\\storage\\models\\time_serie\\arima_Frozen_Shrimp.pkl"
+}

@@ -30,7 +30,7 @@ if env_file.exists():
 
 DEFAULT_SUPABASE_URL = os.getenv(
     "SUPABASE_DATABASE_URL",
-    "postgresql://postgres.hmystckhrffpnspzbpue:r5Diz%24x6g8-Ls3%25@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
+    ""
 )
 DEFAULT_LOCAL_URL = os.getenv(
     "LOCAL_DATABASE_URL",

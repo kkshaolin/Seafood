@@ -1,0 +1,197 @@
+# ==============================================================================
+# Production Docker Compose Configuration (I_LoveSeafood AI Ecosystem)
+# ==============================================================================
+# ใช้สำหรับรันใน Production Environment ควบคู่กับ compose.yml:
+#   docker compose -f compose.yml -f compose.prod.yml --env-file .env.production up -d
+#
+# ข้อแตกต่างสำคัญจาก Development (compose.override.yml):
+# 1. Frontend: คอมไพล์ static asset ผ่าน Nginx (Multi-stage build) ไม่ใช้ Vite dev server
+# 2. Backend: รัน uvicorn ด้วย multi-worker production mode ไม่ mount source code จาก host
+# 3. Workers: รันคำสั่ง ARQ โดยตรง ไม่ใช้ watchfiles polling
+# 4. Security: เปิดเฉพาะ Frontend บน loopback; ปิดพอร์ต host ของ APIs, databases,
+#    object storage, ML tools, and observability services
+# 5. Logging: บังคับจำกัดขนาด log สูงสุด 20MB ต่อไฟล์ ป้องกันปัญหาดิสก์เต็ม
+# ==============================================================================
+
+services:
+  # -------------------------------------------------------------
+  # Frontend: Production Multi-stage Image (Nginx + Built SPA)
+  # -------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    command: ["nginx", "-g", "daemon off;"]
+    restart: always
+    ports: !override
+      - "127.0.0.1:${FRONTEND_PROD_PORT:-8081}:80"
+    volumes: []
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # -------------------------------------------------------------
+  # Backend: Production FastAPI / Uvicorn Server
+  # -------------------------------------------------------------
+  backend:
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+    restart: always
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+      - WATCHFILES_FORCE_POLLING=false
+      - CORS_ORIGINS=${CORS_ORIGINS:?Set CORS_ORIGINS to the production frontend origin}
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+    ports: !reset []
+    volumes:
+      - ./storage:/app/storage
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # -------------------------------------------------------------
+  # Workers: Production ARQ Runners (No File Watching)
+  # -------------------------------------------------------------
+  forecasting-worker:
+    command: ["python", "-m", "arq", "inference_worker.worker.WorkerSettings"]
+    restart: always
+    environment:
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+    volumes:
+      - ./storage:/app/storage
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  training-worker:
+    command: ["python", "-m", "arq", "training_worker.worker.WorkerSettings"]
+    restart: always
+    environment:
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+    volumes:
+      - ./storage:/app/storage
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  sampling-worker:
+    command: ["python", "-m", "arq", "sampling_worker.worker.WorkerSettings"]
+    restart: always
+    environment:
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+    volumes:
+      - ./storage:/app/storage
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  data-worker:
+    command: ["python", "-m", "arq", "data_worker.worker.WorkerSettings"]
+    restart: always
+    environment:
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+    volumes: []
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # -------------------------------------------------------------
+  # Database & Broker Security (Close public host ports)
+  # -------------------------------------------------------------
+  postgres:
+    restart: always
+    ports: !reset []
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  redis:
+    restart: always
+    ports: !reset []
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # -------------------------------------------------------------
+  # Observability & Security Policies
+  # -------------------------------------------------------------
+  grafana:
+    restart: always
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env.production}
+    ports: !reset []
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+  minio:
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+    ports: !reset []
+
+  minio-init:
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+
+  mlflow:
+    environment:
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
+    ports: !reset []
+
+  tensorboard:
+    ports: !reset []
+
+  label-studio:
+    ports: !reset []
+
+  prometheus:
+    ports: !reset []
+
+  loki:
+    ports: !reset []
+
+  tempo:
+    ports: !reset []
+
+  otel-collector:
+    ports: !reset []

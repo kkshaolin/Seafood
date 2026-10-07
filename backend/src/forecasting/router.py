@@ -7,6 +7,7 @@
 import os
 import re
 import uuid
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -58,7 +59,7 @@ async def get_latest_forecast(
                 )
                 for r in latest_records
             ]
-            metrics_obj = ForecastMetrics(mae=0, rmse=0, mape=0)
+            metrics_obj = ForecastMetrics()
             model_uri = None
             try:
                 import json
@@ -71,9 +72,13 @@ async def get_latest_forecast(
                 if m_path.exists():
                     m_data = json.loads(m_path.read_text(encoding="utf-8"))
                     metrics_obj = ForecastMetrics(
-                        mae=float(m_data.get("mae", 0.0)),
-                        rmse=float(m_data.get("rmse", 0.0)),
-                        mape=float(m_data.get("mape", 0.0))
+                        mae=float(m_data["mae"]) if m_data.get("mae") is not None else None,
+                        rmse=float(m_data["rmse"]) if m_data.get("rmse") is not None else None,
+                        mape=float(m_data["mape"]) if m_data.get("mape") is not None else None,
+                        aic=float(m_data["aic"]) if m_data.get("aic") is not None else None,
+                        bic=float(m_data["bic"]) if m_data.get("bic") is not None else None,
+                        baselines=m_data.get("baselines"),
+                        evaluation_notes=m_data.get("evaluation_notes"),
                     )
                     model_uri = m_data.get("local_model_path")
             except Exception:
@@ -114,8 +119,8 @@ async def get_latest_forecast(
         ]
         return ForecastResponse(
             product=product,
-            model_name=latest_records_old[0].model_name,
-            metrics=ForecastMetrics(mae=0, rmse=0, mape=0),
+            model_name=latest_records_old[0].model_name or "ARIMA",
+            metrics=ForecastMetrics(),
             forecast=points,
             model_uri=latest_records_old[0].model_version
         )
@@ -225,27 +230,48 @@ async def get_forecast_job_status(
             raise HTTPException(status_code=404, detail="Job not found")
             
         status_str = "queued"
+        result = None
+        error = None
+        sampling_progress = await redis.get(f"forecast:{job_id}:sampling")
+        if isinstance(sampling_progress, bytes):
+            sampling_progress = sampling_progress.decode("utf-8")
+        sampling_data = json.loads(sampling_progress) if sampling_progress else {}
+
         if job_status == JobStatus.in_progress:
             status_str = "running"
         elif job_status == JobStatus.complete:
             status_str = "completed"
-            
-        info = await job.info()
-        result = None
-        error = None
-        
-        if status_str == "completed":
-            job_result = await job.result()
-            if isinstance(job_result, dict) and job_result.get("status") == "error":
+
+        # ตรวจสอบผลลัพธ์ผ่าน result_info() โดยไม่ trigger re-raise exception หากงานล้มเหลว
+        res_info = await job.result_info()
+        if res_info is not None:
+            if not res_info.success:
                 status_str = "failed"
-                error = job_result.get("error")
+                error = str(res_info.result) if res_info.result else "Job execution failed with exception"
+                result = None
             else:
-                result = job_result
+                job_result = res_info.result
+                if isinstance(job_result, dict) and job_result.get("status") in ("error", "failed"):
+                    status_str = "failed"
+                    error = job_result.get("error") or "Job execution failed"
+                    result = None
+                else:
+                    status_str = "completed"
+                    result = job_result
+                    if isinstance(job_result, dict):
+                        sampling_data = {
+                            "sampled_frames": job_result.get("sampled_frames"),
+                            "sampled_detections": job_result.get("sampled_detections"),
+                            "sampling_error": job_result.get("sampling_error"),
+                        }
                 
         return ForecastJobStatusResponse(
             status=status_str,
             result=result,
-            error=error
+            error=error,
+            sampled_frames=sampling_data.get("sampled_frames"),
+            sampled_detections=sampling_data.get("sampled_detections"),
+            sampling_error=sampling_data.get("sampling_error"),
         )
     except HTTPException:
         raise

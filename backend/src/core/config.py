@@ -3,7 +3,8 @@
 """
 
 from pathlib import Path
-from pydantic import SecretStr
+from typing import Any
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -37,7 +38,7 @@ class Settings(BaseSettings):
     HF_REPO_ID: str = "kkshaolin/yolo_box"
     HF_TOKEN: str = ""
 
-    # CORS Origins (สามารถระบุเป็น list หรือ comma-separated string)
+    # CORS Origins (สามารถระบุเป็น list, JSON string หรือ comma-separated string)
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
@@ -47,6 +48,24 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v_str = v.strip()
+            if v_str.startswith("[") and v_str.endswith("]"):
+                import json
+                try:
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        return [str(i).strip() for i in parsed if str(i).strip()]
+                except Exception:
+                    pass
+            return [i.strip() for i in v_str.split(",") if i.strip()]
+        elif isinstance(v, list):
+            return [str(i).strip() for i in v if str(i).strip()]
+        return []
 
     jwt_secret_key: str = "change-me-secret-key-super-secure"
     jwt_algorithm: str = "HS256"

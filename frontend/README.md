@@ -7,8 +7,7 @@ React + TypeScript single-page application ที่แสดง stock history, 
 - `src/main.tsx`: mount React เข้าสู่ `index.html`
 - `src/App.tsx`: root component ปัจจุบันแสดง `Dashboard`
 - `src/components/Dashboard.tsx`: โหลดข้อมูล API, จัดรูปประวัติ/forecast และ render cards/charts/settings
-- `src/api/`: Axios functions แยกตาม stock, forecast, settings, risk และ camera
-- `src/services/api.ts`: legacy wrapper; Dashboard ใช้ `src/api/` แทน
+- `src/api/`: Axios functions แยกตาม stock, forecast, settings, risk, huggingface และ camera
 - `src/index.css`, `tailwind.config.js`, `postcss.config.js`: base style และ CSS build configuration
 - `vite.config.ts`: dev server และ `/api` proxy; Docker development ใช้ service name `backend`
 - `nginx.conf`: production static hosting และ `/api` proxy

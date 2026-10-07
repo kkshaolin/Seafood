@@ -7,13 +7,14 @@
 import logging
 import os
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from statsmodels.tsa.arima.model import ARIMAResults
 
-from models.stock import MonthlyInventory, DailyInventory, ArimaForecast, InventorySummary, ForecastResult, BoxLog
+from models.stock import MonthlyInventory, ArimaForecast, ForecastResult, BoxLog
 from forecasting.schemas import ForecastRequest, ForecastResponse, ForecastDataPoint, ForecastMetrics
 from inference_worker.forecast_model.preprocessing import prepare_time_series, chronological_split, PreprocessingError
 from inference_worker.forecast_model.arima import train_arima, forecast_arima, select_optimal_arima_order
@@ -29,38 +30,61 @@ class ForecastingService:
         """รับ session แบบ async ที่ worker เปิดไว้สำหรับหนึ่งงาน"""
         self.session = session
 
-    async def get_inventory_data(self) -> pd.DataFrame:
-        """Read monthly inventory quantities from PostgreSQL monthly_inventories table."""
-        stmt = (
-            select(MonthlyInventory.time, MonthlyInventory.total_boxes)
-            .order_by(MonthlyInventory.time.asc())
-        )
-        result = await self.session.execute(stmt)
-        rows = result.all()
-        if rows:
+    async def get_inventory_data(self, product: Optional[str] = None) -> pd.DataFrame:
+        """Read monthly inventory quantities from PostgreSQL monthly_inventories table filtered by product."""
+        from sqlalchemy import or_, func
+
+        clean_p = product.replace("_", " ").strip() if product else ""
+        if clean_p:
+            stmt = (
+                select(MonthlyInventory.time, MonthlyInventory.total_boxes)
+                .where(
+                    or_(
+                        func.lower(MonthlyInventory.product) == clean_p.lower(),
+                        func.lower(MonthlyInventory.product).like(f"%{clean_p.lower()}%")
+                    )
+                )
+                .order_by(MonthlyInventory.time.asc())
+            )
+            result = await self.session.execute(stmt)
+            rows = result.all()
+            if rows:
+                return pd.DataFrame(
+                    {
+                        "recorded_at": [row.time for row in rows],
+                        "quantity": [float(row.total_boxes) for row in rows],
+                    }
+                )
+
+            # If alias is a known seafood product variant, map to main inventory records
+            if clean_p.lower() in ("frozen seafood", "frozen shrimp", "premium white shrimp", "seafood", "shrimp"):
+                stmt_all = select(MonthlyInventory.time, MonthlyInventory.total_boxes).order_by(MonthlyInventory.time.asc())
+                result_all = await self.session.execute(stmt_all)
+                rows_all = result_all.all()
+                if rows_all:
+                    return pd.DataFrame(
+                        {
+                            "recorded_at": [row.time for row in rows_all],
+                            "quantity": [float(row.total_boxes) for row in rows_all],
+                        }
+                    )
+
+            # Product is unknown: return empty DataFrame so caller raises PreprocessingError
+            return pd.DataFrame(columns=["recorded_at", "quantity"])
+
+        # No product specified: return all monthly inventory rows
+        stmt_default = select(MonthlyInventory.time, MonthlyInventory.total_boxes).order_by(MonthlyInventory.time.asc())
+        res_default = await self.session.execute(stmt_default)
+        rows_def = res_default.all()
+        if rows_def:
             return pd.DataFrame(
                 {
-                    "recorded_at": [row.time for row in rows],
-                    "quantity": [float(row.total_boxes) for row in rows],
+                    "recorded_at": [row.time for row in rows_def],
+                    "quantity": [float(row.total_boxes) for row in rows_def],
                 }
             )
 
-        # Fallback to daily_inventories
-        stmt_daily = (
-            select(DailyInventory.time, DailyInventory.total_boxes)
-            .order_by(DailyInventory.time.asc())
-        )
-        result_daily = await self.session.execute(stmt_daily)
-        rows_daily = result_daily.all()
-        if rows_daily:
-            return pd.DataFrame(
-                {
-                    "recorded_at": [row.time for row in rows_daily],
-                    "quantity": [float(row.total_boxes) for row in rows_daily],
-                }
-            )
-
-        logger.warning("No rows in monthly_inventories; falling back to CSV")
+        logger.warning("No rows matching in monthly_inventories; falling back to CSV")
         try:
             return load_inventory_time_series()
         except (FileNotFoundError, ValueError) as exc:
@@ -95,7 +119,7 @@ class ForecastingService:
             )
 
         # 1. Load Real-time Data from DB
-        stock_df = await self.get_inventory_data()
+        stock_df = await self.get_inventory_data(req.product)
         if stock_df.empty:
             raise PreprocessingError(f"Insufficient data: No stock records found for product '{req.product}'")
         stock_df['recorded_at'] = pd.to_datetime(stock_df['recorded_at'], utc=True)
@@ -120,7 +144,7 @@ class ForecastingService:
         
         full_model = None
         model_uri = f"local://{model_path}"
-        mae, rmse, mape = 0.0, 0.0, 0.0
+        mae, rmse, mape = None, None, None
         actual_order = (req.p, req.d, req.q)
         
         if os.path.exists(model_path):
@@ -143,10 +167,10 @@ class ForecastingService:
                     try:
                         import json
                         m_data = json.loads(metrics_path.read_text(encoding="utf-8"))
-                        mae = float(m_data.get("mae", 0.0))
-                        rmse = float(m_data.get("rmse", 0.0))
-                        mape = float(m_data.get("mape", 0.0))
-                        logger.info("Loaded metrics from %s: MAE=%.2f, RMSE=%.2f, MAPE=%.2f%%", metrics_path, mae, rmse, mape)
+                        mae = float(m_data["mae"]) if m_data.get("mae") is not None else None
+                        rmse = float(m_data["rmse"]) if m_data.get("rmse") is not None else None
+                        mape = float(m_data["mape"]) if m_data.get("mape") is not None else None
+                        logger.info("Loaded metrics from %s: MAE=%s, RMSE=%s, MAPE=%s", metrics_path, mae, rmse, mape)
                     except Exception as err_m:
                         logger.warning("Could not read metrics from %s: %s", metrics_path, err_m)
             except Exception as e:
@@ -257,7 +281,7 @@ class ForecastingService:
                 "Inventory summary data has no warehouse column; warehouse filtering is unsupported"
             )
 
-        stock_df = await self.get_inventory_data()
+        stock_df = await self.get_inventory_data(req.product)
         if stock_df.empty:
             raise PreprocessingError(f"Insufficient data for training: No stock records found for product '{req.product}'")
             
@@ -275,7 +299,7 @@ class ForecastingService:
         monthly_df = prepare_time_series(df, target_col='quantity', date_col='recorded_at')
         
         # Train-test split for metrics
-        mae, rmse, mape = 0.0, 0.0, 0.0
+        mae, rmse, mape = None, None, None
         try:
             train_df, test_df = chronological_split(monthly_df, train_ratio=0.8)
             model = train_arima(train_df, 'quantity', exog_cols, req.p, req.d, req.q)

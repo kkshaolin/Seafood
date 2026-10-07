@@ -1,3 +1,4 @@
+# Dataset configuration for delivery_box YOLO detection
 path: ./storage/data/warehouse_box_dataset
 train: train/images
 val: valid/images

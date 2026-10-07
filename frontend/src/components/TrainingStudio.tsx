@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, ExternalLink, Box, TrendingUp, PlayCircle, Settings, 
   CheckCircle2, AlertCircle, Loader2, Layers, Table, RefreshCw, 
-  Sliders, ShieldCheck, Database, Camera, Cloud, Download, Upload, HardDrive, Check, Share2
+  Sliders, ShieldCheck, Database, Camera, Cloud, Download, Upload, HardDrive, Check, Share2,
+  Activity, BarChart3
 } from 'lucide-react';
 import { queueTraining, queueYoloTraining, getForecastJobStatus } from '../api/forecast';
 import { getStockHistory } from '../api/stock';
@@ -135,7 +136,7 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
     try {
       const res = await queueYoloTraining({
         dataset_name: yoloDataset,
-        class_names: ['box'],
+        class_names: ['delivery_box'],
         epochs: yoloEpochs,
         batch: yoloBatch,
         imgsz: 640,
@@ -159,15 +160,7 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
             setYoloProgress(100);
             setYoloStatus('YOLO Training completed successfully!');
             setYoloLoading(false);
-            setYoloMetrics(statusRes.result?.metrics || {
-              mAP50: 0.924,
-              mAP50_95: 0.718,
-              precision: 0.892,
-              recall: 0.875,
-              epochs: yoloEpochs,
-              classes: ['box'],
-              model_uri: statusRes.result?.model_uri || `minio://models/yolo/${yoloDataset}/${jobId}/best.pt`
-            });
+            setYoloMetrics(statusRes.result?.metrics || null);
           } else if (statusRes.status === 'failed') {
             clearInterval(poll);
             setYoloLoading(false);
@@ -228,15 +221,7 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
             setArimaProgress(100);
             setArimaStatus('ARIMA Training completed successfully!');
             setArimaLoading(false);
-            setArimaMetrics(statusRes.result?.metrics || {
-              model_order: 'ARIMA(2,0,2)',
-              mae: 4.31,
-              rmse: 4.86,
-              mape: 6.25,
-              n_train_months: stockHistory.length || 70,
-              data_source: 'PostgreSQL (Cloud)',
-              model_uri: statusRes.result?.model_uri || `minio://models/arima/Frozen_Seafood/${jobId}/model.pkl`
-            });
+            setArimaMetrics(statusRes.result?.metrics || null);
             fetchStockTable();
           } else if (statusRes.status === 'failed') {
             clearInterval(poll);
@@ -346,24 +331,44 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
         {/* ========================================================= */}
         {activeTab === 'yolo' && (
           <div className="space-y-6">
-            {/* Banner อธิบายการใช้งาน Label Studio */}
+            {/* Banner อธิบายการใช้งาน Label Studio และ Live Training Monitors (TensorBoard & MLflow) */}
             <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <h3 className="font-semibold text-indigo-900 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-indigo-600" /> ชุดข้อมูลภาพและ Annotations สำหรับ YOLO
+                  <ShieldCheck className="w-5 h-5 text-indigo-600" /> ชุดข้อมูลภาพและการตรวจสอบโมเดล YOLO (delivery_box)
                 </h3>
                 <p className="text-sm text-indigo-750">
-                  ระบบได้เตรียมรูปภาพจากกล้องวงจรปิดในคลังสินค้า (Zone A และ Zone B) สำหรับตรวจจับ <strong>"box" (กล่องสินค้าอาหารทะเล)</strong> สามารถเปิด Label Studio เพื่อวาด Bounding Box ตรวจทานก่อนกดเทรนได้ทันที
+                  ระบบเตรียมชุดข้อมูลตรวจจับ <strong>"delivery_box" (กล่องสินค้าอาหารทะเล)</strong> สามารถตรวจสอบ Bounding Box ใน Label Studio หรือเปิดดูผลการเทรน/กราฟ Loss ใน TensorBoard และ MLflow แบบเรียลไทม์
                 </p>
               </div>
-              <a
-                href="http://localhost:8080"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition shrink-0"
-              >
-                <ExternalLink className="w-4 h-4" /> ไปยัง Label Studio
-              </a>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <a
+                  href="http://localhost:6006"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-xs transition"
+                  title="เปิดดู TensorBoard สำหรับดูกราฟ Loss, Epoch Metrics และ Confusion Matrix"
+                >
+                  <Activity className="w-3.5 h-3.5" /> ดู TensorBoard
+                </a>
+                <a
+                  href="http://localhost:5000"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition"
+                  title="เปิดดู MLflow UI สำหรับติดตาม Experiments และ Run Parameters"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" /> ดู MLflow UI
+                </a>
+                <a
+                  href="http://localhost:8080"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Label Studio
+                </a>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -491,25 +496,67 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
                   {/* Evaluation Metrics Display */}
                   {yoloMetrics && (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
-                      <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" /> ผลการประเมินโมเดล YOLO (Evaluation Metrics)
-                      </h4>
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" /> ผลการประเมินโมเดล YOLO (Evaluation Metrics)
+                        </h4>
+                        <span className="text-[11px] text-emerald-700 font-medium">Real Held-out Test Set</span>
+                      </div>
+
+                      {/* Run Metadata */}
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-emerald-100 text-xs space-y-1 text-slate-600">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Dataset Source:</span>
+                          <span className="font-semibold text-slate-800">{yoloMetrics.dataset_name || yoloDataset} (MinIO)</span>
+                        </div>
+                        {yoloMetrics.trained_at && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">เวลาที่สร้าง:</span>
+                            <span className="font-mono text-slate-700">{new Date(yoloMetrics.trained_at).toLocaleString()}</span>
+                          </div>
+                        )}
+                        {(yoloMetrics.mlflow_run_id || yoloMetrics.job_id) && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Run ID:</span>
+                            <span className="font-mono text-blue-700 font-semibold truncate max-w-[180px]" title={yoloMetrics.mlflow_run_id || yoloMetrics.job_id}>
+                              {yoloMetrics.mlflow_run_id || yoloMetrics.job_id}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="grid grid-cols-2 gap-2 text-center">
                         <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
                           <span className="text-xs text-slate-500 block">mAP@50</span>
-                          <span className="text-lg font-bold text-emerald-700">{(yoloMetrics.mAP50 * 100).toFixed(1)}%</span>
+                          <span className="text-lg font-bold text-emerald-700">
+                            {yoloMetrics.mAP50 != null || yoloMetrics.best_metrics?.mAP50 != null
+                              ? `${(((yoloMetrics.mAP50 ?? yoloMetrics.best_metrics?.mAP50) as number) * 100).toFixed(1)}%`
+                              : 'ไม่มีผลประเมิน'}
+                          </span>
+                        </div>
+                        <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
+                          <span className="text-xs text-slate-500 block">mAP@50-95</span>
+                          <span className="text-lg font-bold text-emerald-700">
+                            {yoloMetrics.mAP50_95 != null || yoloMetrics.best_metrics?.mAP50_95 != null
+                              ? `${(((yoloMetrics.mAP50_95 ?? yoloMetrics.best_metrics?.mAP50_95) as number) * 100).toFixed(1)}%`
+                              : 'ไม่มีผลประเมิน'}
+                          </span>
                         </div>
                         <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
                           <span className="text-xs text-slate-500 block">Precision</span>
-                          <span className="text-lg font-bold text-emerald-700">{(yoloMetrics.precision * 100).toFixed(1)}%</span>
+                          <span className="text-lg font-bold text-emerald-700">
+                            {yoloMetrics.precision != null || yoloMetrics.best_metrics?.precision != null
+                              ? `${(((yoloMetrics.precision ?? yoloMetrics.best_metrics?.precision) as number) * 100).toFixed(1)}%`
+                              : 'ไม่มีผลประเมิน'}
+                          </span>
                         </div>
                         <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
                           <span className="text-xs text-slate-500 block">Recall</span>
-                          <span className="text-lg font-bold text-emerald-700">{(yoloMetrics.recall * 100).toFixed(1)}%</span>
-                        </div>
-                        <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
-                          <span className="text-xs text-slate-500 block">Class</span>
-                          <span className="text-lg font-bold text-slate-800">box</span>
+                          <span className="text-lg font-bold text-emerald-700">
+                            {yoloMetrics.recall != null || yoloMetrics.best_metrics?.recall != null
+                              ? `${(((yoloMetrics.recall ?? yoloMetrics.best_metrics?.recall) as number) * 100).toFixed(1)}%`
+                              : 'ไม่มีผลประเมิน'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -532,6 +579,29 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
                     </>
                   )}
                 </button>
+
+                {/* แถบทางลัดเปิดดู Dashboard การเทรน */}
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-500 font-medium">Live Monitors:</span>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href="http://localhost:6006"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-medium transition"
+                    >
+                      <Activity className="w-3.5 h-3.5 text-amber-600" /> TensorBoard
+                    </a>
+                    <a
+                      href="http://localhost:5000"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg font-medium transition"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5 text-blue-600" /> MLflow
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -690,27 +760,87 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
                   {/* Evaluation Metrics Display */}
                   {arimaMetrics && (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
-                      <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" /> ผลการประเมินโมเดล ARIMA (Evaluation Metrics)
-                      </h4>
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" /> ผลการประเมินโมเดล ARIMA (Evaluation Metrics)
+                        </h4>
+                        <span className="text-[11px] text-emerald-700 font-medium">Chronological Holdout (80/20)</span>
+                      </div>
+                      
+                      {/* Run Metadata */}
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-emerald-100 text-xs space-y-1 text-slate-600">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Data Source:</span>
+                          <span className="font-semibold text-slate-800">{arimaMetrics.data_source || 'PostgreSQL (monthly_inventories)'}</span>
+                        </div>
+                        {arimaMetrics.trained_at && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">เวลาที่สร้าง:</span>
+                            <span className="font-mono text-slate-700">{new Date(arimaMetrics.trained_at).toLocaleString()}</span>
+                          </div>
+                        )}
+                        {(arimaMetrics.mlflow_run_id || arimaMetrics.job_id) && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Run ID:</span>
+                            <span className="font-mono text-blue-700 font-semibold truncate max-w-[180px]" title={arimaMetrics.mlflow_run_id || arimaMetrics.job_id}>
+                              {arimaMetrics.mlflow_run_id || arimaMetrics.job_id}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="grid grid-cols-2 gap-2 text-center">
                         <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
-                          <span className="text-xs text-slate-500 block">Optimal Order</span>
-                          <span className="text-sm font-bold text-blue-700">{arimaMetrics.model_order || 'ARIMA(2,0,2)'}</span>
+                          <span className="text-xs text-slate-500 block">Model Order</span>
+                          <span className="text-sm font-bold text-blue-700">{arimaMetrics.model_order || 'ARIMA(1,1,1)'}</span>
                         </div>
                         <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
                           <span className="text-xs text-slate-500 block">MAPE (Error %)</span>
-                          <span className="text-sm font-bold text-emerald-700">{arimaMetrics.mape?.toFixed(2)}%</span>
+                          <span className="text-sm font-bold text-emerald-700">
+                            {arimaMetrics.mape != null ? `${arimaMetrics.mape.toFixed(2)}%` : 'ไม่มีผลประเมิน'}
+                          </span>
                         </div>
                         <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
                           <span className="text-xs text-slate-500 block">MAE (Error)</span>
-                          <span className="text-sm font-bold text-slate-800">{arimaMetrics.mae?.toFixed(2)} กล่อง</span>
+                          <span className="text-sm font-bold text-slate-800">
+                            {arimaMetrics.mae != null ? `${arimaMetrics.mae.toFixed(2)} กล่อง` : 'ไม่มีผลประเมิน'}
+                          </span>
                         </div>
                         <div className="bg-white p-2.5 rounded border border-emerald-100 shadow-xs">
                           <span className="text-xs text-slate-500 block">RMSE</span>
-                          <span className="text-sm font-bold text-slate-800">{arimaMetrics.rmse?.toFixed(2)} กล่อง</span>
+                          <span className="text-sm font-bold text-slate-800">
+                            {arimaMetrics.rmse != null ? `${arimaMetrics.rmse.toFixed(2)} กล่อง` : 'ไม่มีผลประเมิน'}
+                          </span>
                         </div>
                       </div>
+
+                      {/* Baseline Comparison (Naïve & Seasonal Naïve) */}
+                      {arimaMetrics.baselines && (
+                        <div className="bg-white/80 p-3 rounded-lg border border-emerald-100 space-y-1.5 text-xs">
+                          <span className="font-semibold text-slate-700 block text-[11px] uppercase tracking-wide">
+                            เปรียบเทียบกับ Baselines:
+                          </span>
+                          <div className="grid grid-cols-2 gap-2 text-slate-600">
+                            <div className="bg-slate-50 p-2 rounded">
+                              <span className="text-[10px] text-slate-500 block">Naïve Baseline MAE</span>
+                              <span className="font-bold text-slate-800">
+                                {arimaMetrics.baselines.naive?.mae != null ? `${arimaMetrics.baselines.naive.mae.toFixed(2)} กล่อง` : 'N/A'}
+                              </span>
+                            </div>
+                            <div className="bg-slate-50 p-2 rounded">
+                              <span className="text-[10px] text-slate-500 block">Seasonal Naïve (m=12) MAE</span>
+                              <span className="font-bold text-slate-800">
+                                {arimaMetrics.baselines.seasonal_naive?.mae != null ? `${arimaMetrics.baselines.seasonal_naive.mae.toFixed(2)} กล่อง` : 'N/A'}
+                              </span>
+                            </div>
+                          </div>
+                          {arimaMetrics.evaluation_notes?.mape_limitation && (
+                            <p className="text-[10px] text-slate-500 italic pt-1">
+                              * {arimaMetrics.evaluation_notes.mape_limitation}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -731,6 +861,19 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
                     </>
                   )}
                 </button>
+
+                {/* แถบทางลัดเปิดดู MLflow UI สำหรับ ARIMA */}
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-500 font-medium">Experiment Tracking:</span>
+                  <a
+                    href="http://localhost:5000/#/experiments/2"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg font-medium transition"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 text-blue-600" /> ดู MLflow Run & Artifacts
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -824,7 +967,13 @@ export const TrainingStudio: React.FC<TrainingStudioProps> = ({ onBack }) => {
                 </p>
                 <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs">
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-600">YOLO Model:</span>
+                    <span className="text-slate-600">YOLO v3 (Recommended):</span>
+                    <span className="font-semibold text-slate-800">
+                      {hfStatus?.local.yolo_box_v3?.exists ? `✅ ${hfStatus.local.yolo_box_v3.size_mb} MB` : '❌ ขาด'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">YOLO Base:</span>
                     <span className="font-semibold text-slate-800">
                       {hfStatus?.local.yolo_box.exists ? `✅ ${hfStatus.local.yolo_box.size_mb} MB` : '❌ ขาด'}
                     </span>

@@ -24,8 +24,10 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# คัดลอก source code
+# คัดลอก source code และ migration scripts
 COPY src/ ./src/
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 
 # สร้างโฟลเดอร์ที่จำเป็น
 RUN mkdir -p /app/logs && chown -R appuser:appuser /app

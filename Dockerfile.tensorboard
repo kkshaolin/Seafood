@@ -1,0 +1,5 @@
+FROM python:3.11-slim
+RUN pip install --no-cache-dir "numpy<2.0.0" "tensorboard>=2.15.0"
+EXPOSE 6006
+USER 1000
+CMD ["tensorboard", "--logdir=/logs", "--host=0.0.0.0", "--port=6006"]

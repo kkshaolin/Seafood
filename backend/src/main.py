@@ -162,9 +162,7 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# นำ router หลักเข้ากับแอป: ที่ใช้งานจริงใน compose.yml คือ stock, forecast, settings และ risk
-# Router หลักที่ใช้งานจริงใน compose.yml คือ stock, forecast, settings และ risk;
-# inventory route เป็น mock/demo และไม่ใช่ส่วนผสมของ workflow หลัก.
+# Router หลักที่ใช้งานจริงใน compose.yml คือ stock, forecast, camera, sampling, settings, risk และ huggingface
 from api.stock.router import router as stock_router
 app.include_router(stock_router, prefix="/api")
 from forecasting.router import router as forecast_router
@@ -179,6 +177,24 @@ from api.camera import router as camera_router
 app.include_router(camera_router, prefix="/api")
 from api.huggingface_router import router as hf_router
 app.include_router(hf_router, prefix="/api")
+
+@app.get("/health/live", tags=["system"], summary="Liveness Probe")
+async def liveness_probe() -> dict:
+    """Lightweight probe verifying process is responsive."""
+    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.get("/health/ready", tags=["system"], summary="Readiness Probe")
+async def readiness_probe(session: AsyncSession = Depends(get_db_session)) -> dict:
+    """Readiness probe checking Postgres, Redis, and MinIO. Returns 503 if degraded."""
+    from fastapi import status as http_status
+    from fastapi.responses import JSONResponse
+
+    res = await health_check(session=session)
+    if res.get("status") != "healthy":
+        return JSONResponse(status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE, content=res)
+    return res
+
 
 @app.get("/health", tags=["system"], summary="Comprehensive System Health Check")
 async def health_check(session: AsyncSession = Depends(get_db_session)) -> dict:
@@ -222,9 +238,6 @@ async def health_check(session: AsyncSession = Depends(get_db_session)) -> dict:
 
 from fastapi import Request
 from arq.jobs import Job
-
-from api.inventory import router as inventory_router
-app.include_router(inventory_router)
 
 if __name__ == "__main__":
     import uvicorn

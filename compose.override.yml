@@ -13,7 +13,7 @@ services:
     # ตรวจไฟล์เป็นช่วง ๆ เพื่อให้ Docker Desktop/Windows พบการเปลี่ยนไฟล์ได้สม่ำเสมอ
     environment:
       - WATCHFILES_FORCE_POLLING=true
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_LOGS_EXPORTER=none
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:8080","http://localhost:8081","*"]
 
@@ -22,7 +22,7 @@ services:
     command: ["watchfiles", "--filter", "python", "python -m arq inference_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_LOGS_EXPORTER=none
 
   training-worker:
@@ -30,7 +30,7 @@ services:
     command: ["watchfiles", "--filter", "python", "python -m arq training_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_LOGS_EXPORTER=none
     volumes:
       - ./backend/src:/backend/src
@@ -40,7 +40,7 @@ services:
     command: ["watchfiles", "--filter", "python", "python -m arq data_worker.worker.WorkerSettings", "."]
     environment:
       - WATCHFILES_FORCE_POLLING=true
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 
   promtail:
     # เปิด log files ของ Docker host ให้ Promtail อ่านได้ในโหมดพัฒนา

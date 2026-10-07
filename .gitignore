@@ -44,11 +44,16 @@ htmlcov/
 .env
 .env.*
 !.env.example
+!.env.production.example
 backend/.env
 *.env
 *.pem
 *.key
 *.cert
+
+# Backups & Archives
+backups/
+*.sql.gz
 
 # ==========================================
 # Data, Logs & AI Model Artifacts (Storage)

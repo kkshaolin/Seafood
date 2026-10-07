@@ -4,7 +4,7 @@
 
 ## Runtime
 
-- `src/main.py` สร้าง FastAPI app, ตั้ง CORS/telemetry, ลงทะเบียน stock, forecasting, settings, risk และ inventory routers และให้ `GET /health`
+- `src/main.py` สร้าง FastAPI app, ตั้ง CORS/telemetry, ลงทะเบียน stock, forecasting, camera, sampling, settings, risk และ huggingface routers และให้ `GET /health` (พร้อม `/health/live` และ `/health/ready`)
 - `src/db/database.py` จัดการ async SQLAlchemy engine/session ที่ API ใช้ ส่วน `src/models/` ประกาศตาราง
 - Forecast requests ถูก enqueue ผ่าน Redis โดย router ใน `src/forecasting/router.py`; การคำนวณจริงอยู่ใน `workers/inference_worker/`
 - Stock history อ่านจาก PostgreSQL; forecasting worker ปัจจุบันอ่าน series จาก CSV ใน `storage/` (ดูหมายเหตุใน README หลัก)
@@ -14,7 +14,7 @@
 ## โฟลเดอร์
 
 - `src/api/`: controllers/routes/schemas สำหรับ endpoints ที่ app ลงทะเบียน
-- `src/core/`: ค่าตั้งค่ากลางและโค้ดฐานข้อมูลรุ่นเก่า/ทางเลือก; เส้นทาง DB ที่ app ปัจจุบัน import คือ `src/db/database.py`
+- `src/core/`: ค่าตั้งค่ากลาง (config.py); เส้นทาง DB หลักคือ `src/db/database.py`
 - `src/db/`: engine และ session dependency
 - `src/forecasting/`: request/response schemas และ API ที่ส่งงาน forecast/training ให้ ARQ
 - `src/models/`: SQLAlchemy table definitions สำหรับ stock, forecasts, settings และ market data

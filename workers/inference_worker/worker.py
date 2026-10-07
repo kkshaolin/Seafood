@@ -8,6 +8,7 @@ Compose เปิดโมดูลนี้เป็น ``forecasting-worker`` 
 import os
 import sys
 import logging
+import json
 from arq.connections import RedisSettings
 
 # เพิ่ม source ของ backend ลงใน path เพื่อให้ worker ใช้ schema และ session ร่วมกันได้
@@ -45,6 +46,8 @@ async def run_forecast_task(ctx, req_data: dict) -> dict:
     logger.info(f"Starting forecast job {job_id}")
     
     # 1. Trigger YOLO Camera Sampling & Inventory Sync (box_logs -> daily_inventories -> monthly_inventories)
+    sample_res = None
+    sampling_error = None
     try:
         from sampling_worker.sampler import sample_camera_frames
         logger.info("Executing YOLO camera sampling & inventory sync before forecasting...")
@@ -56,8 +59,27 @@ async def run_forecast_task(ctx, req_data: dict) -> dict:
             sample_res.get("total_boxes"),
             sample_res.get("bucket"),
         )
+        sampling_progress = {
+            "sampled_frames": {
+                "cam_main": sample_res["zone_a_key"],
+                "cam_dock": sample_res["zone_b_key"],
+            },
+            "sampled_detections": {
+                "cam_main": sample_res["boxes_A"],
+                "cam_dock": sample_res["boxes_B"],
+            },
+        }
+        try:
+            await ctx["redis"].set(
+                f"forecast:{job_id}:sampling",
+                json.dumps(sampling_progress),
+                ex=3600,
+            )
+        except Exception:
+            logger.warning("Could not publish sampling progress for job %s", job_id, exc_info=True)
     except Exception as e_samp:
         logger.warning("Camera sampling in forecast task failed: %s", e_samp, exc_info=True)
+        sampling_error = str(e_samp)
 
     # 2. Proceed with ARIMA Forecasting
     try:
@@ -66,7 +88,19 @@ async def run_forecast_task(ctx, req_data: dict) -> dict:
             service = ForecastingService(session)
             result = await service.run_forecast(req)
             logger.info(f"Forecast job {job_id} completed successfully")
-            return result.model_dump()
+            response = result.model_dump()
+            if sample_res is not None:
+                response["sampled_frames"] = {
+                    "cam_main": sample_res["zone_a_key"],
+                    "cam_dock": sample_res["zone_b_key"],
+                }
+                response["sampled_detections"] = {
+                    "cam_main": sample_res["boxes_A"],
+                    "cam_dock": sample_res["boxes_B"],
+                }
+            if sampling_error is not None:
+                response["sampling_error"] = sampling_error
+            return response
     except Exception as e:
         logger.error(f"Forecast job {job_id} failed: {str(e)}", exc_info=True)
         return {"status": "error", "error": str(e)}

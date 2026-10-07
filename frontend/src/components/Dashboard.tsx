@@ -11,7 +11,7 @@ import {
 
 // ฟังก์ชันเรียก API แยกตามความรับผิดชอบ: สต็อก, กล้อง, พยากรณ์, ตั้งค่า และประเมินความเสี่ยง
 import { getStockSummary, getStockHistory, getStockProducts } from '../api/stock';
-import { getLatestCameraLog, getCameraLogsHistory, getCameraFrameUrl } from '../api/camera';
+import { getLatestCameraLog, getCameraLogsHistory, getCameraFrameUrl, getCameraSampledFrameUrl } from '../api/camera';
 import { queueForecast, getForecastJobStatus, queueTraining, getLatestForecast } from '../api/forecast';
 import { getSettings, updateSettings } from '../api/settings';
 import { evaluateRisk } from '../api/risk';
@@ -41,6 +41,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   const [cameraMode, setCameraMode] = useState<'yolo' | 'video'>('yolo');
   const [cameraFrameTime, setCameraFrameTime] = useState<number>(Date.now());
   const [isRefreshingFrame, setIsRefreshingFrame] = useState(false);
+  const [sampledFrameKeys, setSampledFrameKeys] = useState<Partial<Record<CameraId, string>>>({});
+  const [sampledDetectionCounts, setSampledDetectionCounts] = useState<Partial<Record<CameraId, number>>>({});
+  const [cameraSampleError, setCameraSampleError] = useState<string | null>(null);
   
   // เก็บข้อมูลจาก API เพื่อให้ส่วนแสดงผลอัปเดตตามข้อมูลล่าสุด
   // summary, cameraLog และ cameraHistory ถูกโหลดไว้ แต่ยังไม่ได้ใช้แสดงผลใน UI ปัจจุบัน
@@ -99,7 +102,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
         console.log("No previous forecast found in DB.");
       }
 
-      // Prepared camera API calls; the current backend does not register camera routes yet.
+      // โหลดข้อมูลบันทึกจากกล้อง; หากยังไม่มีข้อมูลให้แสดงภาพจาก frame endpoint แทน
       try {
         const cam = await getLatestCameraLog(cameraId);
         setCameraLog(cam);
@@ -122,14 +125,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     setCameraVideoError(false);
   }, [cameraId]);
 
-  // รีเฟรชภาพจากกล้องและการตรวจจับ YOLO อัตโนมัติทุก 1 นาที (60,000 ms)
+  // รีเฟรช fallback frame ทุกนาที; sampled frame คงภาพของ Predict รอบล่าสุดไว้
   useEffect(() => {
+    if (sampledFrameKeys[cameraId]) return;
+
     const timer = setInterval(() => {
       setCameraFrameTime(Date.now());
       getLatestCameraLog(cameraId).then(setCameraLog).catch(console.error);
     }, 60000);
     return () => clearInterval(timer);
-  }, [cameraId]);
+  }, [cameraId, sampledFrameKeys]);
 
   // สั่งให้อนุมานและรีเฟรชภาพ BBox ทันทีด้วยตนเอง
   const handleRefreshCameraFrame = async () => {
@@ -176,6 +181,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     setLoading(true);
     setStatusMsg('Queuing Forecast Job...');
     setStatusSubMsg('Please wait, preparing forecast request...');
+    setCameraSampleError(null);
     // ล้างผลเก่าเพื่อไม่ให้ผู้ใช้เข้าใจผิดว่าเป็นผลจากคำขอครั้งใหม่
     setForecastData(null);
     try {
@@ -190,13 +196,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       setStatusSubMsg('Please wait, ARIMA is predicting stock values...');
       
       // ตรวจสถานะงานเป็นระยะ เพราะ backend ประมวลผลแบบ asynchronous
+      let displayedSampleKey = sampledFrameKeys[cameraId];
       const poll = setInterval(async () => {
         try {
           const statusRes = await getForecastJobStatus(jobId);
+          const sampledFrameKey: unknown = statusRes.sampled_frames?.[cameraId]
+            ?? statusRes.result?.sampled_frames?.[cameraId];
+          const sampledDetectionCount: unknown = statusRes.sampled_detections?.[cameraId]
+            ?? statusRes.result?.sampled_detections?.[cameraId];
+          if (typeof sampledFrameKey === 'string' && sampledFrameKey !== displayedSampleKey) {
+            displayedSampleKey = sampledFrameKey;
+            setSampledFrameKeys((current) => ({ ...current, [cameraId]: sampledFrameKey }));
+            setCameraFrameTime(Date.now());
+          }
+          if (typeof sampledDetectionCount === 'number') {
+            setSampledDetectionCounts((current) => ({ ...current, [cameraId]: sampledDetectionCount }));
+            setCameraLog((current: any) => ({ ...current, detected_boxes: sampledDetectionCount }));
+          }
+          const samplingError = statusRes.sampling_error ?? statusRes.result?.sampling_error;
+          if (samplingError) {
+            setCameraSampleError(`ไม่สามารถ sampling ภาพรอบนี้ได้: ${samplingError}`);
+          }
+
           if (statusRes.status === 'completed') {
             clearInterval(poll);
             setForecastData(statusRes.result);
             await loadDashboardData();
+            if (typeof sampledDetectionCount === 'number') {
+              setCameraLog((current: any) => ({ ...current, detected_boxes: sampledDetectionCount }));
+            }
             setLoading(false);
             setStatusMsg('');
             setStatusSubMsg('');
@@ -517,26 +545,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                   <div className="grid grid-cols-4 gap-3 bg-gray-50 p-3 rounded-lg border border-gray-100 text-center">
                     <div>
                       <div className="text-xs text-gray-500">Model Order</div>
-                      <div className="font-bold text-blue-700 text-sm mt-0.5">{forecastData.model_name || "ARIMA(2,0,2)"}</div>
+                      <div className="font-bold text-blue-700 text-sm mt-0.5">{forecastData.model_name || "ARIMA"}</div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">MAE (Error)</div>
                       <div className="font-bold text-gray-800 text-sm mt-0.5">
-                        {forecastData.metrics?.mae ? `${forecastData.metrics.mae.toFixed(2)} Box` : "-"}
+                        {forecastData.metrics?.mae != null ? `${forecastData.metrics.mae.toFixed(2)} กล่อง` : "ไม่มีผลประเมิน"}
                       </div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">MAPE (Error %)</div>
                       <div className="font-bold text-emerald-600 text-sm mt-0.5">
-                        {forecastData.metrics?.mape ? `${forecastData.metrics.mape.toFixed(2)}%` : "-"}
+                        {forecastData.metrics?.mape != null ? `${forecastData.metrics.mape.toFixed(2)}%` : "ไม่มีผลประเมิน"}
                       </div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">Model File</div>
                       <div className="font-semibold text-slate-700 text-xs mt-1 truncate" title={forecastData.model_uri || "local"}>
-                        {forecastData.model_uri ? forecastData.model_uri.split('/').pop() : "arima_Frozen_Seafood.pkl"}
+                        {forecastData.model_uri ? forecastData.model_uri.split('/').pop() : "-"}
                       </div>
                     </div>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-gray-500 px-1">
+                    <span>แหล่งข้อมูล: <strong className="text-gray-700">PostgreSQL (monthly_inventories)</strong></span>
+                    <span>ประเมินผล: <strong className="text-gray-700">Chronological Holdout (80/20)</strong></span>
                   </div>
                 </div>
               )}
@@ -596,7 +628,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                     <>
                       <img
                         key={`${cameraId}-${cameraFrameTime}`}
-                        src={getCameraFrameUrl(cameraId, cameraFrameTime)}
+                        src={sampledFrameKeys[cameraId]
+                          ? getCameraSampledFrameUrl(cameraId, sampledFrameKeys[cameraId], cameraFrameTime)
+                          : getCameraFrameUrl(cameraId, cameraFrameTime)}
                         alt={`YOLO Detection - ${CAMERA_SOURCES[cameraId].label}`}
                         onError={() => setCameraVideoError(true)}
                         className="absolute inset-0 w-full h-full object-cover"
@@ -608,13 +642,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                         </span>
-                        YOLO11 BBox (อัปเดตทุก 1 นาที)
+                        YOLO11 BBox {sampledFrameKeys[cameraId] ? '(ภาพ sampling ล่าสุด)' : '(อัปเดตทุก 1 นาที)'}
                       </div>
 
                       {/* จำนวนกล่องที่ตรวจจับได้จริง */}
-                      {cameraLog?.detected_boxes !== undefined && (
+                      {(sampledFrameKeys[cameraId]
+                        ? sampledDetectionCounts[cameraId] ?? cameraLog?.detected_boxes
+                        : cameraLog?.detected_boxes) !== undefined && (
                         <div className="absolute top-3 right-3 bg-blue-900/80 backdrop-blur-md text-white text-xs px-2.5 py-1 rounded-md font-semibold border border-blue-400/40">
-                          📦 ตรวจพบ {cameraLog.detected_boxes} กล่อง
+                          📦 ตรวจพบ {sampledFrameKeys[cameraId]
+                            ? sampledDetectionCounts[cameraId] ?? cameraLog?.detected_boxes
+                            : cameraLog?.detected_boxes} กล่อง
                         </div>
                       )}
 
@@ -665,7 +703,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                     {cameraMode === 'yolo' ? (
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        แสดงกรอบ BBox จริงจากโมเดล YOLO (แคชและอัปเดตอัตโนมัติรอบละ 1 นาที)
+                        แสดงกรอบ BBox จริงจากโมเดล YOLO
+                        {sampledFrameKeys[cameraId] ? ' จาก sampling รอบ Predict ล่าสุด' : ' (อัปเดตทุก 1 นาที)'}
                       </span>
                     ) : (
                       <span>Playing the selected camera video feed without detection overlay.</span>
@@ -683,6 +722,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                   )}
                 </div>
               </div>
+              {cameraSampleError && (
+                <p className="mt-2 text-xs text-amber-700" role="status">{cameraSampleError}</p>
+              )}
             </div>
             </div>
           </div>

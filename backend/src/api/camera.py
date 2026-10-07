@@ -7,6 +7,7 @@ caching the result to minimize CPU/GPU usage while providing live monitoring.
 import io
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ from ultralytics import YOLO
 
 from db.database import get_db_session
 from models.stock import BoxLog
+from services.storage import storage_service
 
 logger = logging.getLogger("api_camera")
 router = APIRouter(prefix="/camera", tags=["camera"])
@@ -35,34 +37,40 @@ _YOLO_MODEL: Optional[YOLO] = None
 
 
 def get_yolo_model() -> YOLO:
-    """Load and cache the YOLO model instance."""
+    """Load and cache the trained YOLO model instance (prioritizing yolo11n_v3.pt)."""
     global _YOLO_MODEL
     if _YOLO_MODEL is not None:
         return _YOLO_MODEL
 
     candidates = [
+        Path("/app/storage/models/non_time_serie/yolo11n_v3.pt"),
+        Path("storage/models/non_time_serie/yolo11n_v3.pt"),
+        Path(__file__).resolve().parents[3] / "storage" / "models" / "non_time_serie" / "yolo11n_v3.pt",
+        Path("/tmp/best.pt"),
         Path("/app/storage/models/non_time_serie/yolo11n.pt"),
         Path("storage/models/non_time_serie/yolo11n.pt"),
-        Path("/tmp/best.pt"),
+        Path(__file__).resolve().parents[3] / "storage" / "models" / "non_time_serie" / "yolo11n.pt",
     ]
     for p in candidates:
         if p.is_file():
             try:
                 logger.info("Loading YOLO model from %s", p)
                 model = YOLO(str(p))
-                if 28 in model.names and model.names[28] == "suitcase":
-                    model.names[28] = "box"
-                _YOLO_MODEL = model
-                return _YOLO_MODEL
+                class_names = list(model.names.values()) if hasattr(model, "names") else []
+                if any("box" in name.lower() for name in class_names):
+                    logger.info("Verified YOLO box detection model (%s) with classes: %s", p.name, model.names)
+                    _YOLO_MODEL = model
+                    return _YOLO_MODEL
+                else:
+                    logger.warning("Model %s does not contain box class: %s", p, model.names)
             except Exception as e:
                 logger.warning("Could not load YOLO from %s: %s", p, e)
 
-    logger.info("Loading default yolo11n.pt model...")
-    model = YOLO("yolo11n.pt")
-    if 28 in model.names and model.names[28] == "suitcase":
-        model.names[28] = "box"
-    _YOLO_MODEL = model
-    return _YOLO_MODEL
+    raise FileNotFoundError(
+        "Trained box detection model not found! "
+        "Expected yolo11n_v3.pt at storage/models/non_time_serie/yolo11n_v3.pt. "
+        "Silent fallback to raw COCO weights is disabled."
+    )
 
 
 def get_video_path(camera_id: str) -> Path:
@@ -80,6 +88,33 @@ def get_video_path(camera_id: str) -> Path:
         if p.is_file():
             return p
     raise FileNotFoundError(f"Video file {filename} not found in candidate paths")
+
+
+def _camera_zone(camera_id: str) -> str:
+    cid = camera_id.lower()
+    return "ZoneA" if ("main" in cid or cid.endswith("a") or "_a" in cid or "zonea" in cid) else "ZoneB"
+
+
+@router.get("/{camera_id}/sampled-frame", summary="ดึงภาพ YOLO จากการ sampling รอบล่าสุด")
+async def get_sampled_camera_frame(camera_id: str, key: str = Query(..., min_length=1)):
+    """Return an annotated frame produced by the sampling job for the selected camera."""
+    zone = _camera_zone(camera_id)
+    if not re.fullmatch(rf"{zone}/frame_\d{{8}}_\d{{6}}(?:_\d{{6}})?\.jpg", key):
+        raise HTTPException(status_code=400, detail="Invalid sampled frame key for this camera")
+
+    try:
+        image = storage_service.download_bytes(
+            key, bucket_name=os.getenv("SAMPLING_BUCKET", "sampling-camera")
+        )
+    except Exception as exc:
+        logger.exception("Failed to retrieve sampled frame %s from MinIO", key)
+        raise HTTPException(status_code=502, detail="Unable to retrieve sampled frame from object storage") from exc
+
+    return Response(
+        content=image,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def extract_annotated_frame(camera_id: str) -> Tuple[bytes, dict]:

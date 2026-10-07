@@ -69,7 +69,7 @@ def find_video_path(zone_suffix: str) -> Path:
 
 
 def load_yolo_model():
-    """Load trained or base YOLO model (singleton)."""
+    """Load trained YOLO model (singleton). Prioritizes yolo11n_v3.pt."""
     global _YOLO_MODEL
     if _YOLO_MODEL is not None:
         return _YOLO_MODEL
@@ -78,27 +78,41 @@ def load_yolo_model():
 
     candidates = [
         Path("/tmp/best.pt"),
+        Path("/app/storage/models/non_time_serie/yolo11n_v3.pt"),
+        Path("storage/models/non_time_serie/yolo11n_v3.pt"),
+        Path(__file__).resolve().parents[2] / "storage" / "models" / "non_time_serie" / "yolo11n_v3.pt",
         Path("/app/storage/models/non_time_serie/yolo11n.pt"),
-        Path(__file__).resolve().parents[2] / "storage" / "models" / "non_time_serie" / "yolo11n.pt",
         Path("storage/models/non_time_serie/yolo11n.pt"),
+        Path(__file__).resolve().parents[2] / "storage" / "models" / "non_time_serie" / "yolo11n.pt",
     ]
     for p in candidates:
         if p.is_file():
             try:
                 logger.info("Loading YOLO model from: %s", p)
-                _YOLO_MODEL = YOLO(str(p))
-                return _YOLO_MODEL
+                model = YOLO(str(p))
+                # Verify box / delivery_box class presence
+                class_names = list(model.names.values()) if hasattr(model, "names") else []
+                if any("box" in name.lower() for name in class_names):
+                    logger.info("Verified box detection model (%s) with classes: %s", p.name, model.names)
+                    _YOLO_MODEL = model
+                    return _YOLO_MODEL
+                else:
+                    logger.warning("Model %s does not contain box class: %s", p, model.names)
             except Exception as e:
                 logger.warning("Could not load YOLO from %s: %s", p, e)
 
-    # Fallback to default
-    logger.info("Loading default yolo11n.pt model...")
-    _YOLO_MODEL = YOLO("yolo11n.pt")
-    return _YOLO_MODEL
+    raise FileNotFoundError(
+        "Trained box detection model not found or invalid! "
+        "Expected yolo11n_v3.pt at storage/models/non_time_serie/yolo11n_v3.pt. "
+        "Silently falling back to raw COCO base weights is strictly forbidden."
+    )
 
 
-def detect_boxes_with_yolo(jpeg_bytes: bytes, zone: str) -> Tuple[int, float]:
-    """Run YOLO inference on cropped camera frame and return detected box count and confidence."""
+def detect_boxes_with_yolo(jpeg_bytes: bytes, zone: str) -> Tuple[int, float, bytes]:
+    """Run YOLO inference and return the count, confidence, and annotated frame.
+
+    A valid frame with no detections returns (0, 0.0) and the unmarked frame.
+    """
     try:
         model = load_yolo_model()
         nparr = np.frombuffer(jpeg_bytes, np.uint8)
@@ -114,19 +128,21 @@ def detect_boxes_with_yolo(jpeg_bytes: bytes, zone: str) -> Tuple[int, float]:
             avg_conf = float(boxes.conf.mean())
             final_count = det_count
         else:
-            # Calibrate realistic box count for warehouse camera zones:
-            # Zone A (Cold Storage): 30-36, Zone B (Processing): 26-32
-            base_count = 33 if zone.upper() == "A" else 28
-            jitter = (int(nparr[:10].sum()) % 5) - 2
-            final_count = max(20, base_count + jitter)
-            avg_conf = 0.92
+            final_count = 0
+            avg_conf = 0.0
+
+        annotated_frame = results[0].plot(labels=True, conf=True)
+        success, buffer = cv2.imencode(
+            ".jpg", annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+        )
+        if not success:
+            raise RuntimeError(f"Failed to encode annotated frame for Zone {zone}")
 
         logger.info("YOLO detected %d boxes in Zone %s (conf=%.2f)", final_count, zone, avg_conf)
-        return final_count, avg_conf
+        return final_count, avg_conf, buffer.tobytes()
     except Exception as e:
-        logger.warning("YOLO detection encountered error (%s); applying fallback", e)
-        fallback = 32 if zone.upper() == "A" else 28
-        return fallback, 0.88
+        logger.error("YOLO detection encountered error: %s", e)
+        raise
 
 
 def extract_and_crop_frame(video_path: Path, crop: bool = True) -> bytes:
@@ -259,37 +275,37 @@ async def sample_camera_frames(crop: bool = True, record_db: bool = True) -> dic
     ensure_bucket(client, MINIO_BUCKET)
 
     now = datetime.now(timezone.utc)
-    timestamp_str = now.strftime("%Y%m%d_%H%M%S")
+    timestamp_str = now.strftime("%Y%m%d_%H%M%S_%f")
 
     # 1. Process Zone A (mockA.mp4)
     video_a_path = find_video_path("A")
     jpeg_bytes_a = extract_and_crop_frame(video_a_path, crop=crop)
+    boxes_a, conf_a, annotated_bytes_a = detect_boxes_with_yolo(jpeg_bytes_a, "A")
     zone_a_key = f"ZoneA/frame_{timestamp_str}.jpg"
     client.put_object(
         bucket_name=MINIO_BUCKET,
         object_name=zone_a_key,
-        data=io.BytesIO(jpeg_bytes_a),
-        length=len(jpeg_bytes_a),
+        data=io.BytesIO(annotated_bytes_a),
+        length=len(annotated_bytes_a),
         content_type="image/jpeg",
     )
-    logger.info("Uploaded Zone A frame: %s/%s (%d bytes)", MINIO_BUCKET, zone_a_key, len(jpeg_bytes_a))
+    logger.info("Uploaded annotated Zone A frame: %s/%s (%d bytes)", MINIO_BUCKET, zone_a_key, len(annotated_bytes_a))
 
     # 2. Process Zone B (mockB.mp4)
     video_b_path = find_video_path("B")
     jpeg_bytes_b = extract_and_crop_frame(video_b_path, crop=crop)
+    boxes_b, conf_b, annotated_bytes_b = detect_boxes_with_yolo(jpeg_bytes_b, "B")
     zone_b_key = f"ZoneB/frame_{timestamp_str}.jpg"
     client.put_object(
         bucket_name=MINIO_BUCKET,
         object_name=zone_b_key,
-        data=io.BytesIO(jpeg_bytes_b),
-        length=len(jpeg_bytes_b),
+        data=io.BytesIO(annotated_bytes_b),
+        length=len(annotated_bytes_b),
         content_type="image/jpeg",
     )
-    logger.info("Uploaded Zone B frame: %s/%s (%d bytes)", MINIO_BUCKET, zone_b_key, len(jpeg_bytes_b))
+    logger.info("Uploaded annotated Zone B frame: %s/%s (%d bytes)", MINIO_BUCKET, zone_b_key, len(annotated_bytes_b))
 
-    # 3. Run YOLO Box Detection
-    boxes_a, conf_a = detect_boxes_with_yolo(jpeg_bytes_a, "A")
-    boxes_b, conf_b = detect_boxes_with_yolo(jpeg_bytes_b, "B")
+    # 3. Summarize YOLO Box Detection
     total_boxes = boxes_a + boxes_b
     avg_conf = (conf_a + conf_b) / 2.0
 

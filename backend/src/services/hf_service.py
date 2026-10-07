@@ -32,6 +32,7 @@ class HuggingFaceService:
                 self.storage_root = repo_root / "storage"
 
         self.models_dir = self.storage_root / "models"
+        self.yolo_v3_path = self.models_dir / "non_time_serie" / "yolo11n_v3.pt"
         self.yolo_path = self.models_dir / "non_time_serie" / "yolo11n.pt"
         self.arima_pkl_path = self.models_dir / "time_serie" / "arima_Frozen_Seafood.pkl"
         self.arima_json_path = self.models_dir / "time_serie" / "arima_Frozen_Seafood.json"
@@ -57,6 +58,12 @@ class HuggingFaceService:
         """ตรวจสอบสถานะโมเดลใน Local Storage, MinIO และ Hugging Face Hub"""
         # 1. Local
         local_info = {
+            "yolo_box_v3": {
+                "name": "yolo11n_v3.pt (Recommended)",
+                "path": str(self.yolo_v3_path),
+                "exists": self.yolo_v3_path.is_file(),
+                "size_mb": round(self.yolo_v3_path.stat().st_size / (1024 * 1024), 2) if self.yolo_v3_path.is_file() else 0,
+            },
             "yolo_box": {
                 "name": "yolo11n.pt",
                 "path": str(self.yolo_path),
@@ -128,7 +135,18 @@ class HuggingFaceService:
 
         uploaded = []
 
-        # 1. YOLO
+        # 1. Recommended YOLO v3 (yolo11n_v3.pt)
+        if self.yolo_v3_path.is_file():
+            api.upload_file(
+                path_or_fileobj=str(self.yolo_v3_path),
+                path_in_repo="yolo/yolo11n_v3.pt",
+                repo_id=self.repo_id,
+                repo_type="model",
+                commit_message="Add recommended YOLO11n v3 seafood box detection weights"
+            )
+            uploaded.append("yolo/yolo11n_v3.pt")
+
+        # 1b. YOLO base (yolo11n.pt)
         if self.yolo_path.is_file():
             api.upload_file(
                 path_or_fileobj=str(self.yolo_path),
@@ -219,10 +237,12 @@ Central model repository for **I_LoveSeafood AI Engineering Ecosystem**.
         """ดาวน์โหลดโมเดลจาก Hugging Face Hub ลงเครื่องและ MinIO"""
         from huggingface_hub import hf_hub_download
 
+        self.yolo_v3_path.parent.mkdir(parents=True, exist_ok=True)
         self.yolo_path.parent.mkdir(parents=True, exist_ok=True)
         self.arima_pkl_path.parent.mkdir(parents=True, exist_ok=True)
 
         items = [
+            ("yolo/yolo11n_v3.pt", self.yolo_v3_path),
             ("yolo/yolo11n.pt", self.yolo_path),
             ("arima/arima_Frozen_Seafood.pkl", self.arima_pkl_path),
             ("arima/arima_Frozen_Seafood.json", self.arima_json_path),
@@ -270,6 +290,10 @@ Central model repository for **I_LoveSeafood AI Engineering Ecosystem**.
             if not client.bucket_exists("models"):
                 client.make_bucket("models")
 
+            if self.yolo_v3_path.is_file():
+                for key in ["yolo/yolo11n_v3.pt", "yolo/recommended/yolo11n_v3.pt", "yolo/base/yolo11n_v3.pt"]:
+                    client.fput_object("models", key, str(self.yolo_v3_path))
+
             if self.yolo_path.is_file():
                 client.fput_object("models", "yolo/base/yolo11n.pt", str(self.yolo_path))
 
@@ -284,8 +308,8 @@ Central model repository for **I_LoveSeafood AI Engineering Ecosystem**.
     def check_or_pull(self) -> Dict[str, Any]:
         """Hybrid Cache-Aside Check: if files missing, pull from HF"""
         missing = []
-        if not self.yolo_path.is_file():
-            missing.append("yolo11n.pt")
+        if not self.yolo_v3_path.is_file():
+            missing.append("yolo11n_v3.pt")
         if not self.arima_pkl_path.is_file():
             missing.append("arima_Frozen_Seafood.pkl")
 

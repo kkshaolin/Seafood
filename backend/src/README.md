@@ -6,16 +6,18 @@
 - `forecasting/router.py`: latest forecast, enqueue forecast/training และ job status
 - `api/settings.py`: อ่านและอัปเดตการตั้งค่า
 - `api/risk.py`: ประเมินความเสี่ยง
-- `api/inventory.py`: inventory API ที่ลงทะเบียนแยกต่างหาก
+- `api/camera.py`: สตรีมภาพและข้อมูลกล้อง CCTV
+- `api/sampling.py`: สุ่มตรวจภาพและควบคุมคิวสุ่มตรวจ
+- `api/huggingface_router.py`: ซิงค์และตรวจสอบโมเดลกับ Hugging Face Hub
 
 ## Package responsibilities
 
-- `core/`: application settings/โค้ดฐานข้อมูลอีกชุดหนึ่ง; ตรวจสอบ imports ก่อนนำไปใช้ เพราะ app ใช้ `db/database.py` เป็น session provider
+- `core/`: application settings (config.py)
 - `db/`: async SQLAlchemy engine, session factory และ FastAPI dependency
 - `models/`: database models ที่สร้าง query/table
-- `services/`: risk calculation และ MinIO storage helper
+- `services/`: risk calculation, storage helper และ Hugging Face sync
 - `utils/`: logging helpers
 
 ## ขอบเขตปัจจุบัน
 
-ไม่มี camera/auth router ใน `main.py` ปัจจุบัน แม้ frontend จะมี camera helpers; requests เหล่านั้นยังไม่รองรับจนกว่าจะลงทะเบียน backend route เพิ่ม ส่วนงานพยากรณ์ทางสถิติทำใน `workers/inference_worker/forecast_model/` ไม่ใช่ใน backend package นี้
+Backend ลงทะเบียน routers ครบถ้วนสำหรับ stock, forecasting, camera, sampling, settings, risk และ huggingface ส่วนงานพยากรณ์ทางสถิติและคอมพิวเตอร์วิทัศน์ทำใน workers โดยแยกกระบวนการอย่างเป็นระบบ

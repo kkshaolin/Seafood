@@ -60,6 +60,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 STORAGE_ROOT = Path(os.getenv("STORAGE_ROOT", str(REPO_ROOT / "storage")))
 MODELS_DIR = STORAGE_ROOT / "models"
 YOLO_LOCAL_PATH = MODELS_DIR / "non_time_serie" / "yolo11n.pt"
+YOLO_V3_LOCAL_PATH = MODELS_DIR / "non_time_serie" / "yolo11n_v3.pt"
 ARIMA_PKL_PATH = MODELS_DIR / "time_serie" / "arima_Frozen_Seafood.pkl"
 ARIMA_JSON_PATH = MODELS_DIR / "time_serie" / "arima_Frozen_Seafood.json"
 
@@ -192,6 +193,11 @@ def check_status(repo_id: str = DEFAULT_HF_REPO, token: Optional[str] = None) ->
 
     # 1. Local Files
     local_status = {
+        "yolo_box_v3 (Recommended)": {
+            "path": str(YOLO_V3_LOCAL_PATH),
+            "exists": YOLO_V3_LOCAL_PATH.is_file(),
+            "size_mb": round(YOLO_V3_LOCAL_PATH.stat().st_size / (1024 * 1024), 2) if YOLO_V3_LOCAL_PATH.is_file() else 0
+        },
         "yolo_box": {
             "path": str(YOLO_LOCAL_PATH),
             "exists": YOLO_LOCAL_PATH.is_file(),
@@ -282,7 +288,25 @@ def push_to_huggingface(repo_id: str = DEFAULT_HF_REPO, token: Optional[str] = N
 
     uploaded_files = []
 
-    # 1. Upload YOLO model
+    # 1. Upload Recommended YOLO v3 model (yolo11n_v3.pt)
+    if YOLO_V3_LOCAL_PATH.is_file():
+        logger.info(f"Uploading recommended YOLO v3 weights: {YOLO_V3_LOCAL_PATH} -> {repo_id}:yolo/yolo11n_v3.pt")
+        try:
+            api.upload_file(
+                path_or_fileobj=str(YOLO_V3_LOCAL_PATH),
+                path_in_repo="yolo/yolo11n_v3.pt",
+                repo_id=repo_id,
+                repo_type="model",
+                commit_message="Add recommended YOLO11n v3 seafood box detection weights"
+            )
+            uploaded_files.append("yolo/yolo11n_v3.pt")
+            logger.info("✅ Recommended YOLO v3 model uploaded successfully.")
+        except Exception as e:
+            logger.error(f"❌ Failed to upload recommended YOLO v3 weights: {e}")
+    else:
+        logger.warning(f"⚠️ Recommended YOLO v3 model file not found at {YOLO_V3_LOCAL_PATH}, skipping.")
+
+    # 1b. Upload Base YOLO model (yolo11n.pt) if present
     if YOLO_LOCAL_PATH.is_file():
         logger.info(f"Uploading YOLO weights: {YOLO_LOCAL_PATH} -> {repo_id}:yolo/yolo11n.pt")
         try:
@@ -375,6 +399,7 @@ def pull_from_huggingface(repo_id: str = DEFAULT_HF_REPO, token: Optional[str] =
     ARIMA_PKL_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     files_to_download = [
+        ("yolo/yolo11n_v3.pt", YOLO_V3_LOCAL_PATH),
         ("yolo/yolo11n.pt", YOLO_LOCAL_PATH),
         ("arima/arima_Frozen_Seafood.pkl", ARIMA_PKL_PATH),
         ("arima/arima_Frozen_Seafood.json", ARIMA_JSON_PATH),
@@ -431,7 +456,13 @@ def seed_to_minio():
             client.make_bucket(MINIO_BUCKET)
             logger.info(f"Created MinIO bucket '{MINIO_BUCKET}'")
 
-        # 1. Base YOLO Model
+        # 1. Recommended YOLO v3 Model (delivery_box)
+        if YOLO_V3_LOCAL_PATH.is_file():
+            for key in ["yolo/yolo11n_v3.pt", "yolo/recommended/yolo11n_v3.pt", "yolo/base/yolo11n_v3.pt"]:
+                client.fput_object(MINIO_BUCKET, key, str(YOLO_V3_LOCAL_PATH))
+                logger.info(f"✅ Synced to MinIO: s3://{MINIO_BUCKET}/{key}")
+
+        # 1b. Base YOLO Model (yolo11n.pt)
         if YOLO_LOCAL_PATH.is_file():
             key = "yolo/base/yolo11n.pt"
             client.fput_object(MINIO_BUCKET, key, str(YOLO_LOCAL_PATH))
@@ -457,8 +488,8 @@ def check_or_pull(repo_id: str = DEFAULT_HF_REPO, token: Optional[str] = None):
     """Hybrid Cache-Aside: check if local models exist; if missing, pull from HF."""
     logger.info("Checking local model cache...")
     missing = []
-    if not YOLO_LOCAL_PATH.is_file():
-        missing.append("yolo11n.pt")
+    if not YOLO_V3_LOCAL_PATH.is_file():
+        missing.append("yolo11n_v3.pt")
     if not ARIMA_PKL_PATH.is_file():
         missing.append("arima_Frozen_Seafood.pkl")
 

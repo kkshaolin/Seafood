@@ -78,15 +78,14 @@ services:
 
   # MinIO เก็บไฟล์ผ่าน API ที่เข้ากันได้กับ S3 เช่น dataset และ model artifacts
   minio:
-    image: bitnami/minio:latest
-    #image: minio/minio:latest
+    image: minio/minio:latest
     user: "0"
     ports: 
       - "9000:9000"       # พอร์ต 9000 เปิด S3 API ให้ backend/workers อ่านและเขียน object
       - "9001:9001"       # พอร์ต 9001 เปิดหน้าเว็บ Console สำหรับจัดการ MinIO ด้วยมือ
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password123}
       MINIO_PROMETHEUS_AUTH_TYPE: "public" 
     command: server /data --console-address ":9001"
     volumes:
@@ -106,14 +105,13 @@ services:
 
   # สร้าง Buckets เริ่มต้นใน MinIO ให้พร้อมใช้โดยอัตโนมัติ
   minio-init:
-    image: bitnami/minio:latest
-    #image: minio/minio:latest
+    image: minio/minio:latest
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 admin password123;
+      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\";
       mc mb --ignore-existing local/mlflow-artifacts;
       mc mb --ignore-existing local/datasets;
       mc mb --ignore-existing local/models;
@@ -121,6 +119,9 @@ services:
       mc mb --ignore-existing local/sampling-camera;
       exit 0;
       "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password123}
     networks:
       - ai-network
     restart: "no"
@@ -141,7 +142,7 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=admin
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-admin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:8080"]
       - OTEL_SERVICE_NAME=fastapi_backend
@@ -151,8 +152,12 @@ services:
       - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       - ./backend/src:/app/src
+      - ./backend/alembic:/app/alembic:ro
+      - ./backend/alembic.ini:/app/alembic.ini:ro
       - ./storage:/app/storage
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       inventory-seed:
@@ -198,10 +203,18 @@ services:
       - ./workers:/app
       - ./backend/src:/backend/src
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       inventory-seed:
         condition: service_completed_successfully
+      backend:
+        condition: service_healthy
       mlflow:
         condition: service_started
     healthcheck:
@@ -236,7 +249,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=admin
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-admin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - MINIO_SECURE=false
       - DAILY_SAMPLING_ENABLED=false
@@ -248,12 +261,16 @@ services:
       - ./workers:/app
       - ./backend/src:/backend/src
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       minio:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      backend:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py", "sampling_worker.worker.WorkerSettings"]
       interval: 60s
@@ -286,9 +303,12 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=admin
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-admin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - MINIO_SECURE=false
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-admin}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-password123}
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
       - HF_REPO_ID=${HF_REPO_ID:-kkshaolin/yolo_box}
       - HF_TOKEN=${HF_TOKEN:-}
     volumes:
@@ -296,14 +316,20 @@ services:
       - ./workers:/app
       - ./backend/src:/backend/src
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
-      inventory-seed:
-        condition: service_completed_successfully
       minio:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      inventory-seed:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py", "training_worker.worker.WorkerSettings"]
       interval: 60s
@@ -336,7 +362,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=admin
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-admin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - DATASETS_BUCKET=datasets
       - STOCK_SYMBOLS=TU,ASIAN,CFRESH,TC,SSF
@@ -375,7 +401,7 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - AWS_ACCESS_KEY_ID=admin
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-admin}
       - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-password123}
       - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
     command: >
@@ -390,6 +416,19 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+    networks:
+      - ai-network
+
+  # TensorBoard แสดงกราฟการฝึกโมเดล YOLO (Loss, Metrics, Learning Rate)
+  tensorboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.tensorboard
+    restart: unless-stopped
+    ports:
+      - "6006:6006"
+    volumes:
+      - ./storage/logs/tensorboard:/logs:ro
     networks:
       - ai-network
 

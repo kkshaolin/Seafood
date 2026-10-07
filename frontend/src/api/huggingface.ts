@@ -12,6 +12,7 @@ export interface HuggingFaceStatusResponse {
   repo_id: string;
   architecture: string;
   local: {
+    yolo_box_v3?: LocalModelStatus;
     yolo_box: LocalModelStatus;
     arima_model: LocalModelStatus;
     arima_metrics: LocalModelStatus;
