@@ -96,3 +96,6 @@ docker compose -f compose.yml -f compose.prod.yml --env-file .env.production up 
 - `tests/test_pipeline_integration.py`: integration checks ที่เรียก backend บน `http://localhost:8000` และคิว/worker/บริการที่เกี่ยวข้อง จึงต้องมี environment ที่กำลังทำงาน
 - `DEPLOYMENT.md`: แนวทาง deployment ที่มีใน repository; ตรวจสอบกับ Compose ปัจจุบันก่อนใช้ เพราะ configuration เป็น source of truth
 - `diagrams/`: ไฟล์ diagrams.net สำหรับภาพประกอบ ไม่ได้ถูกโหลดโดย application
+
+
+![YOLO Prediction Result](assets/yolo_prediction_sample.jpg)
