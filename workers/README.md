@@ -1,31 +1,17 @@
-# Background workers
+# Workers และงานข้อมูล
 
-Workers ใช้ ARQ/Redis เพื่อแยกงานจาก HTTP request; Compose ปัจจุบันเริ่ม worker 3 services:
+โฟลเดอร์นี้มี ARQ entry points และ helpers ที่ติดตามใน Git:
 
-| Compose service | ARQ settings | หน้าที่ |
-|---|---|---|
-| `forecasting-worker` | `inference_worker.worker.WorkerSettings` | รับ `forecasting_queue`, คำนวณ forecast และบันทึกผล |
-| `training-worker` | `training_worker.worker.WorkerSettings` | รับ `training_queue` และฝึก/บันทึกโมเดล |
-| `data-worker` | `data_worker.worker.WorkerSettings` | งาน ingestion และ schedule |
+- `inference_worker/`: ประมวลผล forecast จาก `forecasting_queue`
+- `sampling_worker/`: อ่านวิดีโอ mock, ตรวจจับ box, เก็บภาพใน MinIO และบันทึก inventory log
+- `training_worker/`: dispatch งานฝึก ARIMA หรือ YOLO ที่รับจาก `training_queue`
+- `inventory_data.py`: path resolver และ CSV loader ที่ใช้ร่วมกับ forecast/seed
+- `seed_inventory.py`: ตรวจ schema แล้วนำ inventory CSV ตาม path ที่กำหนดเข้า `inventory_summaries`
+- `adjust_database_data.py`: งานปรับ/นำเข้าข้อมูลฐานข้อมูลที่เรียกด้วยตนเอง
+- `healthcheck.py`: health check ของ ARQ processes ตามชื่อ WorkerSettings
+- `requirements.txt`, `requirements-data.txt`: dependency sets ของ worker images
+- `Dockerfile`, `Dockerfile.data`: build images; Dockerfile.data ปัจจุบันอ้างถึง source package `data_worker/`
 
-## Source layout
+Compose ประกาศ `forecasting-worker`, `sampling-worker`, `training-worker` และ `data-worker`. อย่างไรก็ตาม `data_worker/` ไม่มีอยู่ใน tracked source ปัจจุบัน แม้ Compose และ `Dockerfile.data` จะอ้างถึงแพ็กเกจนี้ จึงอย่าถือว่า data-worker ทำงานได้จาก checkout นี้โดยไม่มี source เพิ่มเติม
 
-- `inference_worker/worker.py`: ARQ job entry point สำหรับ forecast
-- `inference_worker/forecast_model/`: preprocessing, ARIMA fitting, metrics และ service ที่อ่าน CSV/บันทึกผล forecast
-
-ข้อมูล inventory ใช้ไฟล์หลักที่ `storage/data/csvfile/inventory/inventory_summary.csv`
-และรองรับไฟล์เดิม `storage/data/csv_file/inventory_summary (1).csv` เป็น fallback
-เมื่อเริ่ม Compose จะมี `inventory-seed` สร้าง schema และนำเข้าข้อมูลลง `inventory_summaries`
-ก่อนเริ่ม backend/workers; สั่งนำเข้าซ้ำได้ด้วย `docker compose run --rm inventory-seed`.
-งาน ARIMA ฝึกจากข้อมูลเดียวกันและบันทึกโมเดลไว้ใน `storage/models/time_serie/`
-พร้อมอัปโหลดสำเนาไปยัง MinIO; forecast อ่านข้อมูล inventory จาก PostgreSQL และใช้โมเดลที่เทรนไว้เมื่อพบ.
-- `training_worker/worker.py`: ARQ entry point สำหรับ training job
-- `data_worker/worker.py`: กำหนด schedule/งานนำเข้าข้อมูลและเรียก ingestion modules
-- `data_worker/ingestion/`: adapters สำหรับ financials, stocks, trades, database และ MinIO
-- `Dockerfile`, `Dockerfile.data`: ภาพ worker สำหรับ inference/training และ data ingestion ตามลำดับ
-
-ชื่อโมดูลในเอกสารรุ่นเก่าอาจไม่ตรงกับ layout ปัจจุบัน; source of truth สำหรับ entry point คือคำสั่ง `command` ของแต่ละ service ใน `compose.yml`/`compose.override.yml`
-
-แม้ `data-worker` และ trade job จะทำงาน แต่ `trade_sources.yml` ปัจจุบันปิดทุก source ไว้ จึงข้ามการดึง trade data จนกว่าจะเปิดแหล่งข้อมูลที่ต้องการ
-
-Forecast worker อ่าน time series จาก CSV ที่ระบุใน service; stock history ของ UI มาจาก PostgreSQL จึงเป็นคนละ data path ดูคำอธิบายและคำสั่งรันที่ [README หลัก](../README.md)
+ข้อกำหนดของ inventory CSV ที่ seed ต้องการและข้อกำหนด YOLO weights/dataset ระบุไว้ใน [README หลัก](../README.md).

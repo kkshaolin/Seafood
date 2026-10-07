@@ -53,6 +53,9 @@ backend/.env
 
 # Backups & Archives
 backups/
+!/backups/
+/backups/*
+!/backups/README.md
 *.sql.gz
 
 # ==========================================
@@ -121,9 +124,22 @@ ehthumbs.db
 mc.exe
 
 docs
+!/docs/
+/docs/*
+!/docs/README.md
+!/docs/training_api_guide.md
 AI Ecosystem Workspace.docx
 
 sandbox
+!/sandbox/
+/sandbox/*
+!/sandbox/README.md
+!/sandbox/minio/
+/sandbox/minio/*
+!/sandbox/minio/README.md
+!/sandbox/workers_tests/
+/sandbox/workers_tests/*
+!/sandbox/workers_tests/README.md
 
 *.code-workspace
 

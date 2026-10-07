@@ -1,22 +1,24 @@
 # Frontend
 
-React + TypeScript single-page application ที่แสดง stock history, forecast, risk summary, settings และ mock camera panel
+Single-page application ที่สร้างด้วย React 18, TypeScript และ Vite ตาม `package.json`.
 
-## Runtime map
+## หน้าจอและการเชื่อมต่อ
 
-- `src/main.tsx`: mount React เข้าสู่ `index.html`
-- `src/App.tsx`: root component ปัจจุบันแสดง `Dashboard`
-- `src/components/Dashboard.tsx`: โหลดข้อมูล API, จัดรูปประวัติ/forecast และ render cards/charts/settings
-- `src/api/`: Axios functions แยกตาม stock, forecast, settings, risk, huggingface และ camera
-- `src/index.css`, `tailwind.config.js`, `postcss.config.js`: base style และ CSS build configuration
-- `vite.config.ts`: dev server และ `/api` proxy; Docker development ใช้ service name `backend`
-- `nginx.conf`: production static hosting และ `/api` proxy
-- `Dockerfile`: build static bundle แล้ว copy ไปยัง Nginx image
+- `src/App.tsx` สลับระหว่าง Dashboard กับ Training Studio
+- `src/components/Dashboard.tsx` แสดงข้อมูล stock/forecast/risk และกล้อง Zone A/B; ใช้ API สำหรับข้อมูลสต็อกและกล้อง พร้อมวิดีโอ mock ใน `public/`
+- `src/components/TrainingStudio.tsx` ส่งงาน ARIMA/YOLO และเรียก API สำหรับดู/ซิงค์โมเดล Hugging Face
+- `src/api/` รวม Axios calls ที่แยกตาม API domain; client ใช้ `/api` เป็นค่าเริ่มต้น
+- `index.html`, `src/main.tsx`, `src/index.css` เป็น entry point และ style ของ SPA
 
-## Current integration status
+Vite dev server ถูกตั้ง port ภายในเป็น `3000` และ proxy `/api` ไป `http://backend:8000`; Compose development map frontend ไว้ที่ host port `8081`. Production Dockerfile build static bundle แล้วให้ Nginx serve และ proxy API ตาม `nginx.conf`.
 
-Compose development mode (`compose.override.yml`) ใช้ Vite บน <http://localhost:8081/>; production mode ของ `compose.yml` ใช้ Nginx บนพอร์ตเดียวกัน
+## คำสั่งจาก `frontend/`
 
-Dashboard calls settings/stock/forecast/risk endpoints. Camera panel currently shows a local placeholder image; camera API methods are prepared in the frontend but backend does not register camera routes yet. CSV import endpoint/helper remains in source, but the upload control and upload handler have been removed from the Dashboard.
+```text
+npm run dev
+npm run build
+npm run lint
+npm run preview
+```
 
-JSON package lock is generated dependency metadata and does not support comments. Build commands require frontend package metadata/dependencies to be present in the working environment.
+`build` รัน TypeScript compiler ก่อน Vite build. Dependencies ระบุใน `package.json` และ lockfile.
