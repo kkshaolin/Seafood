@@ -1,4 +1,4 @@
-# I_LoveSeafood
+# stock forecasting
 
 ระบบจัดการและวิเคราะห์ข้อมูลสต็อกอาหารทะเล ประกอบด้วย React frontend, FastAPI backend, งานเบื้องหลังผ่าน ARQ/Redis, PostgreSQL, MinIO และชุดเครื่องมือ observability ที่ประกาศไว้ใน Docker Compose
 
@@ -98,4 +98,4 @@ docker compose -f compose.yml -f compose.prod.yml --env-file .env.production up 
 - `diagrams/`: ไฟล์ diagrams.net สำหรับภาพประกอบ ไม่ได้ถูกโหลดโดย application
 
 
-![YOLO Prediction Result](assets/yolo_prediction_sample.jpg)
+![YOLO Prediction Result](docs/images/assets/yolo_prediction_sample.jpg)

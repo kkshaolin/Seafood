@@ -478,7 +478,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                 <span>Forecast (Next)</span>
                 <TrendingUp className="w-4 h-4 text-emerald-500" />
               </div>
-              <div className="text-2xl font-bold text-gray-800">{nextForecast} Box</div>
+              <div className="text-2xl font-bold text-gray-800">{nextForecast} Pallet</div>
             </div>
 
             {/* 3. การ์ด Current Stock */}
@@ -487,7 +487,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                 <span>Current Stock</span>
                 <Box className="w-4 h-4 text-blue-500" />
               </div>
-              <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} Box</div>
+              <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} Pallet</div>
             </div>
 
             {/* 4. การ์ด Average Monthly */}
@@ -496,7 +496,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                 <span>Average Monthly</span>
                 <Activity className="w-4 h-4 text-purple-500" />
               </div>
-              <div className="text-2xl font-bold text-gray-800">{avgStock} Box</div>
+              <div className="text-2xl font-bold text-gray-800">{avgStock} Pallet</div>
             </div>
           </div>
 
@@ -652,7 +652,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                         <div className="absolute top-3 right-3 bg-blue-900/80 backdrop-blur-md text-white text-xs px-2.5 py-1 rounded-md font-semibold border border-blue-400/40">
                           📦 ตรวจพบ {sampledFrameKeys[cameraId]
                             ? sampledDetectionCounts[cameraId] ?? cameraLog?.detected_boxes
-                            : cameraLog?.detected_boxes} กล่อง
+                            : cameraLog?.detected_boxes} พาเลท
                         </div>
                       )}
 
@@ -777,7 +777,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
 
               {/* กำหนดระดับสต็อกที่ใช้เป็นเกณฑ์แจ้งเตือนความเสี่ยง */}
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase">Low Stock Threshold (Box)</label>
+                <label className="text-xs font-semibold text-gray-600 uppercase">Low Stock Threshold (Pallet)</label>
                 <input 
                   type="number" 
                   value={settings.low_stock_threshold || ''}

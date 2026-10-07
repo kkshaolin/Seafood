@@ -38,6 +38,7 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from fastapi import Response
 
 resource = Resource.create({"service.name": os.getenv("OTEL_SERVICE_NAME", "fastapi_backend")})
 
@@ -208,6 +209,7 @@ async def health_check(session: AsyncSession = Depends(get_db_session)) -> dict:
             "minio": "unknown",
         },
     }
+    
 
     # 1. Check PostgreSQL
     try:

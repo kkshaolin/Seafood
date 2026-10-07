@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from arq import create_pool
 from arq.connections import RedisSettings
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,8 +91,9 @@ async def trigger_camera_sampling(redis=Depends(get_redis_pool)):
 
 
 @router.get("/status", response_model=SamplingStatusResponse, summary="ตรวจสอบสถานะการตั้งค่า Sampling")
-async def get_sampling_status(session: AsyncSession = Depends(get_db_session)):
+async def get_sampling_status(response: Response, session: AsyncSession = Depends(get_db_session)):
     """ตรวจสอบสถานะของ sampling-camera bucket, ค่า daily schedule และจำนวนครั้งที่ sample ไปแล้ว"""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     try:
         count_stmt = select(func.count(BoxLog.id))
         count_res = await session.execute(count_stmt)
@@ -119,6 +120,7 @@ async def get_sampling_status(session: AsyncSession = Depends(get_db_session)):
 @router.get("/logs", response_model=List[BoxLogResponse], summary="ดึงรายการประวัติที่บันทึกลง box_logs")
 async def list_box_logs(limit: int = 20, session: AsyncSession = Depends(get_db_session)):
     """ดึงข้อมูลรายการล่าสุดจากตาราง box_logs"""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     try:
         stmt = select(BoxLog).order_by(desc(BoxLog.time)).limit(limit)
         res = await session.execute(stmt)

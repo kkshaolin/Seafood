@@ -31,7 +31,7 @@ router = APIRouter(prefix="/camera", tags=["camera"])
 # In-memory cache for 60 seconds (1 minute interval)
 # Structure: camera_id -> (timestamp, jpeg_bytes, metadata_dict)
 _FRAME_CACHE: Dict[str, Tuple[float, bytes, dict]] = {}
-CACHE_TTL_SECONDS = 60
+CACHE_TTL_SECONDS = 0
 
 _YOLO_MODEL: Optional[YOLO] = None
 
