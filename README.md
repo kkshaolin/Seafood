@@ -97,6 +97,8 @@ docker compose -f compose.yml -f compose.prod.yml --env-file .env.production up 
 - `DEPLOYMENT.md`: แนวทาง deployment ที่มีใน repository; ตรวจสอบกับ Compose ปัจจุบันก่อนใช้ เพราะ configuration เป็น source of truth
 - `diagrams/`: ไฟล์ diagrams.net สำหรับภาพประกอบ ไม่ได้ถูกโหลดโดย application
 
+### ตัวอย่างการรันและผลลัพธ์การตรวจจับ (Inference Example)
 
+ภาพด้านล่างแสดงตัวอย่างผลลัพธ์การรันโมเดล YOLO ในการตรวจจับกล่องสินค้า (`delivery_box`) จากกล้องภายในคลังสินค้า
 
 ![YOLO Prediction Result](docs/images/assets/yolo_prediction_sample.jpg)
