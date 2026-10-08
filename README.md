@@ -98,4 +98,5 @@ docker compose -f compose.yml -f compose.prod.yml --env-file .env.production up 
 - `diagrams/`: ไฟล์ diagrams.net สำหรับภาพประกอบ ไม่ได้ถูกโหลดโดย application
 
 
+
 ![YOLO Prediction Result](docs/images/assets/yolo_prediction_sample.jpg)
