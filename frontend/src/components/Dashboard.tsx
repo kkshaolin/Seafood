@@ -14,7 +14,7 @@ import { getStockSummary, getStockHistory, getStockProducts } from '../api/stock
 import { getLatestCameraLog, getCameraLogsHistory, getCameraFrameUrl, getCameraSampledFrameUrl } from '../api/camera';
 import { queueForecast, getForecastJobStatus, queueTraining, getLatestForecast } from '../api/forecast';
 import { getSettings, updateSettings } from '../api/settings';
-import { evaluateRisk } from '../api/risk';
+import { evaluateRisk, RiskResponse } from '../api/risk';
 
 type CameraId = 'cam_main' | 'cam_dock';
 
@@ -57,7 +57,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   // เก็บค่าตั้งค่าระบบ, สถานะเปิด/ปิดหน้าต่างตั้งค่า และผลประเมินความเสี่ยง
   const [settings, setSettings] = useState<any>({});
   const [showSettings, setShowSettings] = useState(false);
-  const [riskData, setRiskData] = useState<any>(null);
+  const [riskData, setRiskData] = useState<RiskResponse | null>(null);
 
   // โหลดข้อมูลทั้งหมดที่หน้า Dashboard ต้องใช้จาก API
   const loadDashboardData = async () => {
@@ -217,30 +217,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     }
   };
 
-  // คำนวณความเสี่ยงใหม่เมื่อประวัติสต็อก ผลพยากรณ์ หรือค่าตั้งค่าที่เกี่ยวข้องเปลี่ยน
+  // คำนวณความเสี่ยงใหม่เมื่อประวัติสต็อก ผลพยากรณ์ ข้อมูลกล้อง หรือการตั้งค่าเปลี่ยน
   useEffect(() => {
     const checkRisk = async () => {
-      // ใช้ปริมาณล่าสุดในประวัติเทียบกับค่าพยากรณ์งวดถัดไป
       const currentStock = historyData.length > 0 ? historyData[historyData.length - 1].quantity : 0;
       const nextForecast = forecastData?.forecast?.[0]?.predicted_value;
-      
-      // ประเมินได้เมื่อมีข้อมูลสต็อก/พยากรณ์และผู้ใช้กำหนดเกณฑ์สต็อกต่ำแล้ว
-      if (currentStock !== undefined && nextForecast !== undefined && settings.low_stock_threshold) {
+
+      // ดึงยอดพาเลทที่ตรวจพบจากกล้องทุกโซน
+      const countMain = sampledDetectionCounts['cam_main'] ?? (cameraId === 'cam_main' ? cameraLog?.detected_boxes : undefined);
+      const countDock = sampledDetectionCounts['cam_dock'] ?? (cameraId === 'cam_dock' ? cameraLog?.detected_boxes : undefined);
+
+      let detectedTotal: number | undefined = undefined;
+      if (countMain !== undefined || countDock !== undefined) {
+        detectedTotal = (countMain || 0) + (countDock || 0);
+      } else if (typeof cameraLog?.detected_boxes === 'number') {
+        detectedTotal = cameraLog.detected_boxes;
+      }
+
+      // ประเมินความเสี่ยงเมื่อมีผลพยากรณ์
+      if (nextForecast !== undefined) {
         try {
           const r = await evaluateRisk({
             current_stock: currentStock,
             forecast_stock: nextForecast,
-            threshold: parseFloat(settings.low_stock_threshold),
-            risk_preference: settings.risk_preference || 'balanced'
+            detected_stock: detectedTotal,
+            threshold: parseFloat(settings.low_stock_threshold || '50'),
+            risk_preference: settings.risk_preference || 'balanced',
           });
           setRiskData(r);
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error('Error evaluating risk:', e);
+        }
       } else {
         setRiskData(null);
       }
     };
     checkRisk();
-  }, [historyData, forecastData, settings]);
+  }, [historyData, forecastData, settings, sampledDetectionCounts, cameraLog, cameraId]);
 
   // ขอให้ backend สร้างงานพยากรณ์ แล้วตรวจสอบสถานะงานจนเสร็จ ล้มเหลว หรือหมดเวลา
   const runForecast = async () => {
@@ -528,9 +541,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
           {/* การ์ดสรุป: ย้าย Risk Status มาไว้ซ้ายสุด */}
           <div className="grid grid-cols-4 gap-4">
             {/* 1. การ์ด Risk Status (ย้ายมาไว้ซ้ายสุด) */}
-            <div className={`p-4 rounded-xl border shadow-sm ${
+            <div className={`p-4 rounded-xl border shadow-sm transition-all ${
               riskData?.risk_level === 'Critical' ? 'bg-red-50 border-red-200' 
-              : riskData?.risk_level === 'Warning' ? 'bg-orange-50 border-orange-200'
+              : riskData?.risk_level === 'Warning' ? 'bg-orange-50 border-orange-200' 
               : 'bg-green-50 border-green-200'
             }`}>
               <div className={`${
@@ -538,27 +551,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                 : riskData?.risk_level === 'Warning' ? 'text-orange-700' 
                 : 'text-green-700'
               } mb-1 flex items-center justify-between`}>
-                <span>Risk Status</span>
+                <span className="font-semibold text-xs tracking-wide uppercase">Risk Status</span>
                 <AlertTriangle className={`w-4 h-4 ${
                   riskData?.risk_level === 'Critical' ? 'text-red-500' 
                   : riskData?.risk_level === 'Warning' ? 'text-orange-500' 
                   : 'text-green-500'
                 }`} />
               </div>
-              <div className={`text-2xl font-bold ${
-                riskData?.risk_level === 'Critical' ? 'text-red-800' 
-                : riskData?.risk_level === 'Warning' ? 'text-orange-800' 
-                : 'text-green-800'
-              }`}>
-                {riskData?.risk_level || (nextForecast !== '-' ? 'Evaluating...' : 'Unknown')}
+              <div className="flex items-baseline justify-between">
+                <div className={`text-2xl font-bold ${
+                  riskData?.risk_level === 'Critical' ? 'text-red-800' 
+                  : riskData?.risk_level === 'Warning' ? 'text-orange-800' 
+                  : 'text-green-800'
+                }`}>
+                  {riskData?.risk_level || (nextForecast !== '-' ? 'Evaluating...' : 'Unknown')}
+                </div>
+                {riskData?.diff_percent !== undefined && (
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
+                    riskData?.risk_level === 'Critical' ? 'bg-red-200/80 text-red-900' 
+                    : riskData?.risk_level === 'Warning' ? 'bg-orange-200/80 text-orange-900' 
+                    : 'bg-green-200/80 text-green-900'
+                  }`}>
+                    ต่างกัน {riskData.diff_percent}%
+                  </span>
+                )}
               </div>
-              <div className={`text-xs mt-2 ${
-                riskData?.risk_level === 'Critical' ? 'text-red-600' 
-                : riskData?.risk_level === 'Warning' ? 'text-orange-600' 
-                : 'text-green-600'
+              <div className={`text-xs mt-2 leading-relaxed font-medium ${
+                riskData?.risk_level === 'Critical' ? 'text-red-700' 
+                : riskData?.risk_level === 'Warning' ? 'text-orange-700' 
+                : 'text-green-700'
               }`}>
                 {riskData?.reason || (nextForecast !== '-' ? 'Waiting for model forecast' : 'Run forecast to evaluate risk')}
               </div>
+              {riskData?.detected_stock !== undefined && (
+                <div className="mt-2.5 pt-2 border-t border-gray-200/60 flex items-center justify-between text-[11px] text-gray-500 font-mono">
+                  <span>ตรวจพบจริง: <strong className="text-gray-800">{riskData.detected_stock}</strong> พาเลท</span>
+                  <span>ทำนาย: <strong className="text-gray-800">{Math.round(riskData.forecast_stock)}</strong> พาเลท</span>
+                </div>
+              )}
             </div>
 
             {/* 2. การ์ด Forecast (Next) */}
@@ -846,15 +876,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
               
               {/* เลือกความเข้มงวดของการประเมินความเสี่ยง */}
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-600 uppercase">Risk Preference</label>
+                <label className="text-xs font-semibold text-gray-600 uppercase">Risk Preference (เกณฑ์ความคลาดเคลื่อน)</label>
                 <select 
                   value={settings.risk_preference || 'balanced'} 
                   onChange={(e) => setSettings({...settings, risk_preference: e.target.value})}
-                  className="w-full p-2 border border-gray-200 rounded focus:ring-2 focus:ring-blue-100 outline-none"
+                  className="w-full p-2 border border-gray-200 rounded focus:ring-2 focus:ring-blue-100 outline-none text-xs"
                 >
-                  <option value="conservative">Conservative (Warn early, keep high stock)</option>
-                  <option value="balanced">Balanced (Standard thresholds)</option>
-                  <option value="aggressive">Aggressive (Lean stock, tolerate lower levels)</option>
+                  <option value="conservative">Conservative (เข้มงวด: เตือนเมื่อต่างกัน &gt; 10%, วิกฤต &gt; 20%)</option>
+                  <option value="balanced">Balanced (มาตรฐาน: เตือนเมื่อต่างกัน &gt; 15%, วิกฤต &gt; 30%)</option>
+                  <option value="aggressive">Aggressive (ยืดหยุ่น: เตือนเมื่อต่างกัน &gt; 25%, วิกฤต &gt; 45%)</option>
                 </select>
               </div>
 

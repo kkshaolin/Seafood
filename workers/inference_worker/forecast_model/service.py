@@ -118,23 +118,13 @@ class ForecastingService:
                 "Inventory summary data has no warehouse column; warehouse filtering is unsupported"
             )
 
-        # 1. Load Real-time Data from DB
+        # 1. Load Monthly Data from DB (Pure Monthly Time Series, without daily/camera logs)
         stock_df = await self.get_inventory_data(req.product)
         if stock_df.empty:
             raise PreprocessingError(f"Insufficient data: No stock records found for product '{req.product}'")
         stock_df['recorded_at'] = pd.to_datetime(stock_df['recorded_at'], utc=True)
-            
-        camera_df = await self.get_detected_stock_data()
-        
-        if not camera_df.empty:
-            camera_df['recorded_at'] = pd.to_datetime(camera_df['recorded_at'], utc=True)
-            df = pd.merge(stock_df, camera_df, on='recorded_at', how='outer')
-            df['quantity'] = df['quantity'].fillna(0.0)
-            df['detected_stock'] = df['detected_stock'].fillna(0)
-            exog_cols = ['detected_stock']
-        else:
-            df = stock_df
-            exog_cols = []
+        df = stock_df
+        exog_cols = []
             
         monthly_df = prepare_time_series(df, target_col='quantity', date_col='recorded_at')
         
@@ -284,17 +274,9 @@ class ForecastingService:
         stock_df = await self.get_inventory_data(req.product)
         if stock_df.empty:
             raise PreprocessingError(f"Insufficient data for training: No stock records found for product '{req.product}'")
-            
-        camera_df = await self.get_detected_stock_data()
-        
-        if not camera_df.empty:
-            df = pd.merge(stock_df, camera_df, on='recorded_at', how='outer')
-            df['quantity'] = df['quantity'].fillna(0.0)
-            df['detected_stock'] = df['detected_stock'].fillna(0)
-            exog_cols = ['detected_stock']
-        else:
-            df = stock_df
-            exog_cols = []
+        stock_df['recorded_at'] = pd.to_datetime(stock_df['recorded_at'], utc=True)
+        df = stock_df
+        exog_cols = []
             
         monthly_df = prepare_time_series(df, target_col='quantity', date_col='recorded_at')
         

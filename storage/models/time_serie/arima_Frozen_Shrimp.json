@@ -32,6 +32,6 @@
     "mape_limitation": "MAPE is sensitive to near-zero actual values and undefined when actual is zero. MAE and RMSE provide more robust evaluation for inventory series.",
     "zero_actuals_present": false
   },
-  "trained_at": "2026-10-08T02:40:59.615472+00:00",
+  "trained_at": "2026-10-08T04:31:36.575358+00:00",
   "local_model_path": "C:\\Users\\kitti\\AIE\\ecosystem\\I_LoveSeafood\\storage\\models\\time_serie\\arima_Frozen_Shrimp.pkl"
 }

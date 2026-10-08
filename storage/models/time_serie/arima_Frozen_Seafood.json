@@ -1,16 +1,37 @@
 {
-  "mae": 13.524987751515846,
-  "rmse": 14.489006043170482,
-  "mape": 19.483707395510628,
+  "mae": 4.097121254313845,
+  "rmse": 4.750611561392319,
+  "mape": 5.9107406755000165,
+  "aic": 431.5153899735629,
+  "bic": 447.2548566679084,
   "p": 2,
-  "d": 1,
+  "d": 0,
   "q": 2,
-  "model_order": "ARIMA(2,1,2)",
+  "model_order": "ARIMA(2,0,2)",
   "auto_order_used": true,
   "forecast_horizon": 3,
-  "n_train_months": 72,
+  "n_train_months": 70,
   "product": "Frozen_Seafood",
   "data_source": "postgresql",
-  "trained_at": "2026-10-06T03:13:08.126527+00:00",
+  "eval_method": "chronological_holdout_80_20",
+  "baselines": {
+    "naive": {
+      "name": "Naïve (Persistence)",
+      "mae": 4.428571428571429,
+      "rmse": 5.223572942509206,
+      "mape": 6.576668788897382
+    },
+    "seasonal_naive": {
+      "name": "Seasonal Naïve (m=12)",
+      "mae": 5.714285714285714,
+      "rmse": 6.557438524302,
+      "mape": 8.449564080465443
+    }
+  },
+  "evaluation_notes": {
+    "mape_limitation": "MAPE is sensitive to near-zero actual values and undefined when actual is zero. MAE and RMSE provide more robust evaluation for inventory series.",
+    "zero_actuals_present": false
+  },
+  "trained_at": "2026-10-08T04:05:30.333146+00:00",
   "local_model_path": "/app/storage/models/time_serie/arima_Frozen_Seafood.pkl"
 }

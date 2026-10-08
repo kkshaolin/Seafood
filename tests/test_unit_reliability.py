@@ -446,3 +446,50 @@ async def test_sampling_to_result_yolo_pipeline():
         assert y_res["total_boxes"] >= 0
 
 
+def test_risk_evaluation_detected_vs_forecast():
+    """Verify RiskService correctly evaluates discrepancy between detected stock and forecast."""
+    import sys
+    from pathlib import Path
+    backend_src = str(Path(__file__).resolve().parent.parent / "backend" / "src")
+    if backend_src not in sys.path:
+        sys.path.insert(0, backend_src)
+    from services.risk_service import RiskService
+
+    # 1. Normal: close to forecast (e.g. 60 detected vs 63 forecast -> diff 4.8%)
+    res_normal = RiskService.evaluate_risk(forecast_stock=63.0, detected_stock=60.0, risk_preference="balanced")
+    assert res_normal["risk_level"] == "Normal"
+    assert res_normal["diff_percent"] == 4.8
+    assert "ปกติ" in res_normal["reason"]
+
+    # 2. Warning: 52 detected vs 63 forecast (diff 17.5% > 15% warn_pct under balanced)
+    res_warn = RiskService.evaluate_risk(forecast_stock=63.0, detected_stock=52.0, risk_preference="balanced")
+    assert res_warn["risk_level"] == "Warning"
+    assert res_warn["diff_percent"] == 17.5
+    assert "เฝ้าระวัง" in res_warn["reason"]
+
+    # 3. Critical: 10 detected vs 63 forecast (diff 84.1% > 30% crit_pct)
+    res_crit = RiskService.evaluate_risk(forecast_stock=63.0, detected_stock=10.0, risk_preference="balanced")
+    assert res_crit["risk_level"] == "Critical"
+    assert "วิกฤต" in res_crit["reason"]
+
+    # 4. Critical: 0 detected when forecast > 0
+    res_zero = RiskService.evaluate_risk(forecast_stock=63.0, detected_stock=0.0, risk_preference="balanced")
+    assert res_zero["risk_level"] == "Critical"
+    assert "ตรวจไม่พบพาเลทจากกล้อง" in res_zero["reason"]
+
+    # 5. Preference variation: 52 detected vs 63 forecast (17.5% diff)
+    # Under Aggressive (warn > 25%): 17.5% is Normal!
+    res_agg = RiskService.evaluate_risk(forecast_stock=63.0, detected_stock=52.0, risk_preference="aggressive")
+    assert res_agg["risk_level"] == "Normal"
+
+    # Under Conservative (warn > 10%): 17.5% is Warning!
+    res_cons = RiskService.evaluate_risk(forecast_stock=63.0, detected_stock=52.0, risk_preference="conservative")
+    assert res_cons["risk_level"] == "Warning"
+
+    # 6. Fallback mode (no camera detected_stock passed)
+    res_fallback = RiskService.evaluate_risk(forecast_stock=63.0, threshold=50.0, risk_preference="balanced")
+    assert res_fallback["risk_level"] == "Normal"
+    assert res_fallback["detected_stock"] is None
+
+
+

@@ -194,28 +194,7 @@ async def record_box_log_and_sync_inventory(
             now
         )
         logger.info("Synced YOLO detection to daily_inventories for %s (total=%d)", today_date, total)
-
-        # 3. Sync to monthly_inventories for the current month
-        month_date = today_date.replace(day=1)
-        await conn.execute(
-            """
-            INSERT INTO monthly_inventories (time, product, boxes_a, boxes_b, total_boxes, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (time, product) DO UPDATE SET
-                boxes_a = EXCLUDED.boxes_a,
-                boxes_b = EXCLUDED.boxes_b,
-                total_boxes = EXCLUDED.total_boxes,
-                created_at = EXCLUDED.created_at;
-            """,
-            month_date,
-            product_name,
-            boxes_a,
-            boxes_b,
-            total,
-            now
-        )
-        logger.info("Synced YOLO detection to monthly_inventories for %s (total=%d)", month_date, total)
-
+        # Note: monthly_inventories is reserved strictly for official closed monthly totals and not overwritten by instantaneous camera counts.
     finally:
         await conn.close()
 

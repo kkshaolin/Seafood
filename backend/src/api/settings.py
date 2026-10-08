@@ -29,7 +29,7 @@ async def get_all_settings(session: AsyncSession = Depends(get_db_session)):
     # Default fallback for important settings if missing
     defaults = {
         "risk_preference": "balanced",
-        "low_stock_threshold": "1000",
+        "low_stock_threshold": "50",
         "forecast_horizon": "3",
         "default_product": "tiger_shrimp_size_L"
     }
