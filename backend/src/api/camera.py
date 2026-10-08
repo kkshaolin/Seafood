@@ -74,20 +74,19 @@ def get_yolo_model() -> YOLO:
 
 
 def get_video_path(camera_id: str) -> Path:
-    """Resolve mock video file for the given camera ID."""
+    """Resolve mock video file for the given camera ID strictly from frontend/public/."""
     cid = camera_id.lower()
     filename = "mockA.mp4" if ("main" in cid or cid.endswith("a") or "_a" in cid or "zonea" in cid) else "mockB.mp4"
     candidates = [
-        Path("/app/storage/data/videos") / filename,
-        Path("storage/data/videos") / filename,
-        Path(__file__).resolve().parents[3] / "storage" / "data" / "videos" / filename,
-        Path("/app/frontend/public") / filename,
+        Path(__file__).resolve().parents[3] / "frontend" / "public" / filename,
         Path("frontend/public") / filename,
+        Path("/app/frontend/public") / filename,
+        Path("/frontend/public") / filename,
     ]
     for p in candidates:
         if p.is_file():
             return p
-    raise FileNotFoundError(f"Video file {filename} not found in candidate paths")
+    raise FileNotFoundError(f"Video file {filename} not found in frontend/public/: {[str(c) for c in candidates]}")
 
 
 def _camera_zone(camera_id: str) -> str:
@@ -95,25 +94,66 @@ def _camera_zone(camera_id: str) -> str:
     return "ZoneA" if ("main" in cid or cid.endswith("a") or "_a" in cid or "zonea" in cid) else "ZoneB"
 
 
-@router.get("/{camera_id}/sampled-frame", summary="ดึงภาพ YOLO จากการ sampling รอบล่าสุด")
-async def get_sampled_camera_frame(camera_id: str, key: str = Query(..., min_length=1)):
-    """Return an annotated frame produced by the sampling job for the selected camera."""
-    zone = _camera_zone(camera_id)
-    if not re.fullmatch(rf"{zone}/frame_\d{{8}}_\d{{6}}(?:_\d{{6}})?\.jpg", key):
-        raise HTTPException(status_code=400, detail="Invalid sampled frame key for this camera")
-
+def get_latest_result_frame_key(zone: str) -> Optional[str]:
+    """Retrieve the newest annotated frame key in result-yolo bucket for the given zone."""
+    result_bucket = os.getenv("RESULT_YOLO_BUCKET", "result-yolo")
     try:
-        image = storage_service.download_bytes(
-            key, bucket_name=os.getenv("SAMPLING_BUCKET", "sampling-camera")
-        )
-    except Exception as exc:
-        logger.exception("Failed to retrieve sampled frame %s from MinIO", key)
-        raise HTTPException(status_code=502, detail="Unable to retrieve sampled frame from object storage") from exc
+        objs = storage_service.list_objects(prefix=f"{zone}/", bucket_name=result_bucket)
+        if objs:
+            objs.sort(key=lambda o: o["object_name"], reverse=True)
+            return objs[0]["object_name"]
+    except Exception as e:
+        logger.warning("Could not list objects from %s for zone %s: %s", result_bucket, zone, e)
+    return None
 
+
+@router.get("/{camera_id}/sampled-frame", summary="ดึงภาพ YOLO จากการ sampling รอบล่าสุด")
+async def get_sampled_camera_frame(
+    camera_id: str,
+    key: Optional[str] = Query(None),
+    session: AsyncSession = Depends(get_db_session)
+):
+    """Return an annotated frame produced by YOLO detection from MinIO bucket 'result-yolo'."""
+    zone = _camera_zone(camera_id)
+    result_bucket = os.getenv("RESULT_YOLO_BUCKET", "result-yolo")
+    sampling_bucket = os.getenv("SAMPLING_BUCKET", "sampling-camera")
+
+    target_key = None
+    if key and key != "latest":
+        if re.fullmatch(rf"{zone}/frame_\d{{8}}_\d{{6}}(?:_\d{{6}})?\.jpg", key) or key.startswith(f"{zone}/"):
+            target_key = key
+
+    # If key was not provided or was 'latest', find the latest from result-yolo or DB
+    if not target_key:
+        target_key = get_latest_result_frame_key(zone)
+        if not target_key:
+            stmt = select(BoxLog).order_by(desc(BoxLog.time)).limit(1)
+            res = await session.execute(stmt)
+            latest_db = res.scalar_one_or_none()
+            if latest_db and latest_db.image_path:
+                parts = latest_db.image_path.split(";")
+                target_key = parts[0] if zone == "ZoneA" else (parts[1] if len(parts) > 1 else parts[0])
+
+    if target_key:
+        try:
+            try:
+                image = storage_service.download_bytes(target_key, bucket_name=result_bucket)
+            except Exception:
+                image = storage_service.download_bytes(target_key, bucket_name=sampling_bucket)
+            return Response(
+                content=image,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "no-store", "X-Source": "result-yolo", "X-Frame-Key": target_key},
+            )
+        except Exception:
+            logger.warning("Failed to retrieve target key %s from MinIO, falling back to frame extraction", target_key)
+
+    # Fallback to extract annotated frame directly if no result in MinIO yet
+    jpeg_bytes, _ = extract_annotated_frame(camera_id)
     return Response(
-        content=image,
+        content=jpeg_bytes,
         media_type="image/jpeg",
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": "no-store", "X-Source": "fallback-inference"},
     )
 
 
@@ -167,31 +207,36 @@ def extract_annotated_frame(camera_id: str) -> Tuple[bytes, dict]:
         cap.release()
 
 
-@router.get("/{camera_id}/frame", summary="ดึงภาพ Snapshot พร้อม BBox จริงจากโมเดล YOLO (อัปเดตทุก 1 นาที)")
-async def get_camera_annotated_frame(camera_id: str, force: bool = Query(False, description="บังคับให้อนุมานภาพใหม่ทันที")):
-    """ส่งคืนรูปภาพ JPEG พร้อมผลการตรวจจับ BBox จริงจากโมเดล YOLO โดยแคชไว้ 60 วินาที เพื่อประหยัดทรัพยากร."""
-    now = time.time()
-    if not force and camera_id in _FRAME_CACHE:
-        cached_time, cached_bytes, _ = _FRAME_CACHE[camera_id]
-        if now - cached_time < CACHE_TTL_SECONDS:
-            return Response(
-                content=cached_bytes,
-                media_type="image/jpeg",
-                headers={
-                    "Cache-Control": f"public, max-age={int(CACHE_TTL_SECONDS - (now - cached_time))}",
-                    "X-Cache": "HIT"
-                }
-            )
+@router.get("/{camera_id}/frame", summary="ดึงภาพ Snapshot พร้อม BBox จริงจากโมเดล YOLO (ล่าสุดเสมอ)")
+async def get_camera_annotated_frame(
+    camera_id: str,
+    force: bool = Query(False, description="บังคับให้อนุมานภาพใหม่ทันที"),
+    session: AsyncSession = Depends(get_db_session)
+):
+    """ส่งคืนรูปภาพ JPEG พร้อมผลการตรวจจับ BBox จริงจาก MinIO result-yolo (ล่าสุดเสมอ)."""
+    zone = _camera_zone(camera_id)
+    result_bucket = os.getenv("RESULT_YOLO_BUCKET", "result-yolo")
+
+    if not force:
+        latest_key = get_latest_result_frame_key(zone)
+        if latest_key:
+            try:
+                image = storage_service.download_bytes(latest_key, bucket_name=result_bucket)
+                return Response(
+                    content=image,
+                    media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store", "X-Source": "result-yolo", "X-Frame-Key": latest_key},
+                )
+            except Exception as e:
+                logger.warning("Could not download %s from %s: %s", latest_key, result_bucket, e)
 
     try:
         jpeg_bytes, meta = extract_annotated_frame(camera_id)
-        _FRAME_CACHE[camera_id] = (now, jpeg_bytes, meta)
         return Response(
             content=jpeg_bytes,
             media_type="image/jpeg",
             headers={
                 "Cache-Control": f"public, max-age={CACHE_TTL_SECONDS}",
-                "X-Cache": "MISS",
                 "X-Detected-Boxes": str(meta["detected_boxes"])
             }
         )
@@ -202,36 +247,37 @@ async def get_camera_annotated_frame(camera_id: str, force: bool = Query(False, 
 
 @router.get("/{camera_id}/latest", summary="ดึงข้อมูลสรุปการตรวจจับล่าสุดของกล้อง")
 async def get_latest_camera_log(camera_id: str, session: AsyncSession = Depends(get_db_session)):
-    """ส่งคืน metadata การตรวจจับล่าสุดของกล้องที่เลือก พร้อมเวลาอัปเดตครั้งถัดไป."""
-    now = time.time()
-    meta = None
-    if camera_id in _FRAME_CACHE:
-        cached_time, _, meta = _FRAME_CACHE[camera_id]
-        elapsed = now - cached_time
-        next_update = max(0, int(CACHE_TTL_SECONDS - elapsed))
-    else:
-        # Pre-warm cache if not present
-        try:
-            jpeg_bytes, meta = extract_annotated_frame(camera_id)
-            _FRAME_CACHE[camera_id] = (now, jpeg_bytes, meta)
-            next_update = CACHE_TTL_SECONDS
-        except Exception:
-            next_update = 0
-
-    # Also query DB for historical box log
+    """ส่งคืน metadata การตรวจจับล่าสุดของกล้องที่เลือก พร้อม image_key ใน result-yolo."""
     cid = camera_id.lower()
     zone_code = "ZoneA" if ("main" in cid or cid.endswith("a") or "_a" in cid or "zonea" in cid) else "ZoneB"
+
+    # Query latest DB box log
     stmt = select(BoxLog).order_by(desc(BoxLog.time)).limit(1)
     res = await session.execute(stmt)
     latest_db = res.scalar_one_or_none()
 
+    latest_key = get_latest_result_frame_key(zone_code)
+    if not latest_key and latest_db and latest_db.image_path:
+        parts = latest_db.image_path.split(";")
+        latest_key = parts[0] if zone_code == "ZoneA" else (parts[1] if len(parts) > 1 else parts[0])
+
+    det_boxes = 0
+    conf = 0.0
+    last_updated = datetime.now(timezone.utc).isoformat()
+
+    if latest_db:
+        det_boxes = latest_db.boxes_A if zone_code == "ZoneA" else latest_db.boxes_B
+        conf = latest_db.confidence or 0.0
+        last_updated = latest_db.time.isoformat() if latest_db.time else last_updated
+
     return {
         "camera_id": camera_id,
         "zone": zone_code,
-        "detected_boxes": meta.get("detected_boxes", 0) if meta else (latest_db.boxes_A if zone_code == "ZoneA" and latest_db else (latest_db.boxes_B if latest_db else 0)),
-        "confidence": meta.get("confidence", 0.0) if meta else (latest_db.confidence if latest_db else 0.0),
-        "last_updated": meta.get("timestamp") if meta else (latest_db.time.isoformat() if latest_db else datetime.now(timezone.utc).isoformat()),
-        "next_update_seconds": next_update,
+        "detected_boxes": det_boxes,
+        "confidence": conf,
+        "image_key": latest_key,
+        "last_updated": last_updated,
+        "next_update_seconds": CACHE_TTL_SECONDS,
         "interval_seconds": CACHE_TTL_SECONDS,
         "status": "online"
     }

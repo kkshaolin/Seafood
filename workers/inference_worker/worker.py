@@ -45,28 +45,51 @@ async def run_forecast_task(ctx, req_data: dict) -> dict:
     job_id = ctx.get("job_id", "unknown")
     logger.info(f"Starting forecast job {job_id}")
     
-    # 1. Trigger YOLO Camera Sampling & Inventory Sync (box_logs -> daily_inventories -> monthly_inventories)
-    sample_res = None
+    # 1. Step 1: Trigger Camera Sampling (store raw frame in MinIO 'sampling-camera')
+    #    Step 2: Inference Worker pulls from 'sampling-camera', detects with YOLO,
+    #            stores annotated frames to 'result-yolo', and records both cameras to PostgreSQL.
+    yolo_res = None
     sampling_error = None
     try:
         from sampling_worker.sampler import sample_camera_frames
-        logger.info("Executing YOLO camera sampling & inventory sync before forecasting...")
-        sample_res = await sample_camera_frames(crop=True, record_db=True)
-        logger.info(
-            "YOLO Sampling complete: ZoneA=%s, ZoneB=%s, Total=%s (bucket: %s)",
-            sample_res.get("boxes_A"),
-            sample_res.get("boxes_B"),
-            sample_res.get("total_boxes"),
-            sample_res.get("bucket"),
+        logger.info("Sampling raw camera frames into MinIO 'sampling-camera'...")
+        sample_res = await sample_camera_frames(
+            crop=True,
+            video_time=req_data.get("video_time"),
+            video_time_a=req_data.get("video_time_a"),
+            video_time_b=req_data.get("video_time_b"),
+            predict_timestamp=req_data.get("timestamp") or req_data.get("predict_timestamp"),
         )
+        logger.info(
+            "Raw frames sampled to '%s': ZoneA=%s, ZoneB=%s",
+            sample_res.get("bucket"),
+            sample_res.get("zone_a_key"),
+            sample_res.get("zone_b_key"),
+        )
+
+        from inference_worker.yolo_inference_worker import run_yolo_detection_from_sampling
+        logger.info("Inference Worker pulling latest frames from 'sampling-camera' to run YOLO detection...")
+        yolo_res = await run_yolo_detection_from_sampling(
+            zone_a_key=sample_res.get("zone_a_key"),
+            zone_b_key=sample_res.get("zone_b_key"),
+            record_db=True,
+        )
+        logger.info(
+            "YOLO Detection complete: ZoneA=%s, ZoneB=%s, Total=%s (result bucket: %s)",
+            yolo_res.get("boxes_A"),
+            yolo_res.get("boxes_B"),
+            yolo_res.get("total_boxes"),
+            yolo_res.get("result_bucket"),
+        )
+
         sampling_progress = {
             "sampled_frames": {
-                "cam_main": sample_res["zone_a_key"],
-                "cam_dock": sample_res["zone_b_key"],
+                "cam_main": yolo_res["zone_a_key"],
+                "cam_dock": yolo_res["zone_b_key"],
             },
             "sampled_detections": {
-                "cam_main": sample_res["boxes_A"],
-                "cam_dock": sample_res["boxes_B"],
+                "cam_main": yolo_res["boxes_A"],
+                "cam_dock": yolo_res["boxes_B"],
             },
         }
         try:
@@ -78,7 +101,7 @@ async def run_forecast_task(ctx, req_data: dict) -> dict:
         except Exception:
             logger.warning("Could not publish sampling progress for job %s", job_id, exc_info=True)
     except Exception as e_samp:
-        logger.warning("Camera sampling in forecast task failed: %s", e_samp, exc_info=True)
+        logger.warning("Camera sampling / YOLO detection in forecast task failed: %s", e_samp, exc_info=True)
         sampling_error = str(e_samp)
 
     # 2. Proceed with ARIMA Forecasting
@@ -89,14 +112,14 @@ async def run_forecast_task(ctx, req_data: dict) -> dict:
             result = await service.run_forecast(req)
             logger.info(f"Forecast job {job_id} completed successfully")
             response = result.model_dump()
-            if sample_res is not None:
+            if yolo_res is not None:
                 response["sampled_frames"] = {
-                    "cam_main": sample_res["zone_a_key"],
-                    "cam_dock": sample_res["zone_b_key"],
+                    "cam_main": yolo_res["zone_a_key"],
+                    "cam_dock": yolo_res["zone_b_key"],
                 }
                 response["sampled_detections"] = {
-                    "cam_main": sample_res["boxes_A"],
-                    "cam_dock": sample_res["boxes_B"],
+                    "cam_main": yolo_res["boxes_A"],
+                    "cam_dock": yolo_res["boxes_B"],
                 }
             if sampling_error is not None:
                 response["sampling_error"] = sampling_error

@@ -372,3 +372,77 @@ async def test_arima_trainer_handles_mlflow_unavailable_gracefully():
         assert res["product"] == "Frozen Shrimp"
         assert res["mlflow_run_id"] is None, "MLflow run ID should be None when MLflow is unreachable"
         assert res["metrics"]["mae"] is not None
+
+
+# ---------------------------------------------------------------------------
+# 5. Sampling Worker Restricted Path & Predict-Time Frame Extraction Tests
+# ---------------------------------------------------------------------------
+
+def test_sampling_video_path_strictly_frontend_public():
+    """find_video_path strictly resolves mock videos from frontend/public."""
+    from sampling_worker.sampler import find_video_path
+    path_a = find_video_path("A")
+    path_b = find_video_path("B")
+
+    assert path_a.is_file()
+    assert path_b.is_file()
+    assert "frontend" in str(path_a).lower() and "public" in str(path_a).lower()
+    assert "frontend" in str(path_b).lower() and "public" in str(path_b).lower()
+
+
+def test_sampling_extract_frame_deterministic_at_predict_time():
+    """extract_and_crop_frame extracts exact frame at predict video_time deterministically."""
+    from sampling_worker.sampler import find_video_path, extract_and_crop_frame
+    path_a = find_video_path("A")
+
+    # Extract twice with same video_time
+    frame1 = extract_and_crop_frame(path_a, crop=True, video_time=2.5)
+    frame2 = extract_and_crop_frame(path_a, crop=True, video_time=2.5)
+
+    assert frame1 == frame2
+    assert len(frame1) > 0
+
+
+def test_sampling_cron_jobs_disabled():
+    """sampling_worker WorkerSettings has cron_jobs disabled (only runs on predict)."""
+    from sampling_worker.worker import WorkerSettings
+    assert WorkerSettings.cron_jobs == [], "Sampling worker cron jobs should be empty so it only triggers on predict"
+
+
+@pytest.mark.asyncio
+async def test_sampling_to_result_yolo_pipeline():
+    """Verify sampling uploads to sampling-camera, and inference worker detects and saves to result-yolo."""
+    from sampling_worker.sampler import sample_camera_frames
+    from inference_worker.yolo_inference_worker import run_yolo_detection_from_sampling
+
+    stored_objects = {}
+    mock_minio = MagicMock()
+    mock_minio.bucket_exists.return_value = True
+
+    def put_obj(bucket_name, object_name, data, length, content_type):
+        stored_objects[(bucket_name, object_name)] = data.read()
+
+    def get_obj(bucket_name, object_name):
+        resp = MagicMock()
+        resp.read.return_value = stored_objects.get((bucket_name, object_name), b"test_jpeg")
+        return resp
+
+    mock_minio.put_object.side_effect = put_obj
+    mock_minio.get_object.side_effect = get_obj
+
+    with patch("sampling_worker.sampler.get_minio_client", return_value=mock_minio):
+        s_res = await sample_camera_frames(crop=True, video_time=1.0)
+        assert s_res["bucket"] == "sampling-camera"
+        assert ("sampling-camera", s_res["zone_a_key"]) in stored_objects
+        assert ("sampling-camera", s_res["zone_b_key"]) in stored_objects
+
+    with patch("inference_worker.yolo_inference_worker.get_minio_client", return_value=mock_minio), \
+         patch("inference_worker.yolo_inference_worker.record_box_log_and_sync_inventory", AsyncMock()):
+        y_res = await run_yolo_detection_from_sampling(s_res["zone_a_key"], s_res["zone_b_key"], record_db=True)
+        assert y_res["source_bucket"] == "sampling-camera"
+        assert y_res["result_bucket"] == "result-yolo"
+        assert ("result-yolo", y_res["zone_a_key"]) in stored_objects
+        assert ("result-yolo", y_res["zone_b_key"]) in stored_objects
+        assert y_res["total_boxes"] >= 0
+
+

@@ -11,9 +11,10 @@ services:
 
   backend:
     # ตรวจไฟล์เป็นช่วง ๆ เพื่อให้ Docker Desktop/Windows พบการเปลี่ยนไฟล์ได้สม่ำเสมอ
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--app-dir", "/app/src"]
     environment:
       - WATCHFILES_FORCE_POLLING=true
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_LOGS_EXPORTER=none
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:8080","http://localhost:8081","*"]
 
@@ -34,13 +35,6 @@ services:
       - OTEL_LOGS_EXPORTER=none
     volumes:
       - ./backend/src:/backend/src
-
-  data-worker:
-    # เฝ้าดู source ของ ingestion worker เพื่อให้การแก้ connector มีผลโดยไม่ build image ใหม่
-    command: ["watchfiles", "--filter", "python", "python -m arq data_worker.worker.WorkerSettings", "."]
-    environment:
-      - WATCHFILES_FORCE_POLLING=true
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 
   promtail:
     # เปิด log files ของ Docker host ให้ Promtail อ่านได้ในโหมดพัฒนา

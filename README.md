@@ -67,7 +67,7 @@ docker compose -f compose.yml -f compose.prod.yml --env-file .env.production up 
 ### ข้อกำหนดที่ยังไม่ครบใน checkout นี้
 
 - `inventory-seed` เรียก `workers/inventory_data.py` ซึ่งค้นหา `INVENTORY_CSV_PATH` หรือไฟล์ `storage/data/csvfile/inventory/inventory_summary.csv` และ fallback ไป `storage/data/csv_file/inventory_summary (1).csv`; ไม่มี path เหล่านี้ในไฟล์ที่ติดตามอยู่ในปัจจุบัน แม้จะมี CSV รายวัน/รายเดือนคนละชื่อใน `storage/data/csv_file/` ก็ตาม Backend, forecasting-worker และ training-worker ระบุ dependency ให้รอ seed สำเร็จ จึงต้องจัดเตรียม CSV ที่ตรง schema/path ก่อนใช้งาน Compose flow นี้
-- Compose ประกาศ `data-worker` และ `workers/Dockerfile.data` สั่งคัดลอก `data_worker/`; แต่ไม่มี `workers/data_worker/` ใน tracked source ปัจจุบัน จึงยังตรวจสอบหรือ build worker นี้จาก checkout นี้ไม่ได้
+- ปิด `data-worker` ไว้ใน Compose ทุกโหมด เพราะ checkout นี้ไม่มี source `workers/data_worker/`; worker สำหรับ forecast, sampling และ training ยังคงใช้งานได้ตามปกติ หากต้องใช้ market-data ingestion ให้เพิ่ม source package นี้ก่อนนำ service กลับมา
 - กล้องและ sampling worker ต้องใช้ YOLO weight ที่มี class ชื่อเกี่ยวกับ `box` ใน `storage/models/non_time_serie/`; ใน tracked storage มีเฉพาะ ARIMA artifacts ใต้ `storage/models/time_serie/` ไม่มี YOLO weight ดังกล่าว
 - `storage/data/warehouse_box_dataset/data.yaml` ระบุ split ของ YOLO dataset แต่ภาพและ label สำหรับ split ไม่ได้อยู่ใน tracked files ปัจจุบัน; การฝึก/ประเมินจึงต้องมี dataset จริงตาม configuration
 - `scripts/import_inventory_csv.py` เป็น importer อีกเส้นทางหนึ่งสำหรับ CSV รายวัน/รายเดือนที่มีอยู่ แต่สคริปต์สร้าง/ล้างตารางบางชุดก่อนนำเข้า (`TRUNCATE ... RESTART IDENTITY`) จึงตรวจสอบปลายทางและข้อมูลก่อนสั่งรันทุกครั้ง

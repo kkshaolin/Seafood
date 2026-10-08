@@ -8,6 +8,10 @@ export interface ForecastRequestPayload {
   d?: number;
   q?: number;
   warehouse?: string;
+  video_time?: number;
+  video_time_a?: number;
+  video_time_b?: number;
+  timestamp?: number;
 }
 
 // ส่งคำขอ forecast เข้าคิว เพราะการคำนวณใช้เวลานาน; ใช้ job ID ที่ได้มาตรวจผลภายหลัง

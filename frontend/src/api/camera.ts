@@ -9,6 +9,7 @@ export interface CameraLatestInfo {
   next_update_seconds: number;
   interval_seconds: number;
   status: string;
+  image_key?: string;
 }
 
 export const getCameraFrameUrl = (cameraId: string, timestamp?: number, force: boolean = false): string => {
@@ -20,9 +21,10 @@ export const getCameraFrameUrl = (cameraId: string, timestamp?: number, force: b
   return `${base}/camera/${cameraId}/frame${qs ? `?${qs}` : ''}`;
 };
 
-export const getCameraSampledFrameUrl = (cameraId: string, key: string, timestamp?: number): string => {
+export const getCameraSampledFrameUrl = (cameraId: string, key?: string, timestamp?: number): string => {
   const base = import.meta.env.VITE_API_BASE_URL || '/api';
-  const query = new URLSearchParams({ key });
+  const query = new URLSearchParams();
+  if (key) query.set('key', key);
   if (timestamp) query.set('t', timestamp.toString());
   return `${base}/camera/${cameraId}/sampled-frame?${query.toString()}`;
 };

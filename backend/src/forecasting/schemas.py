@@ -16,6 +16,10 @@ class ForecastRequest(BaseModel):
     forecast_horizon: int = Field(default=3, ge=1, le=60, description="Forecast steps in months (1..60)")
     # Optional filter for warehouse if needed
     warehouse: Optional[str] = None
+    video_time: Optional[float] = None
+    video_time_a: Optional[float] = None
+    video_time_b: Optional[float] = None
+    timestamp: Optional[float] = None
 
 class ForecastDataPoint(BaseModel):
     date: date

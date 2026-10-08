@@ -44,6 +44,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   const [sampledFrameKeys, setSampledFrameKeys] = useState<Partial<Record<CameraId, string>>>({});
   const [sampledDetectionCounts, setSampledDetectionCounts] = useState<Partial<Record<CameraId, number>>>({});
   const [cameraSampleError, setCameraSampleError] = useState<string | null>(null);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
   
   // เก็บข้อมูลจาก API เพื่อให้ส่วนแสดงผลอัปเดตตามข้อมูลล่าสุด
   // summary, cameraLog และ cameraHistory ถูกโหลดไว้ แต่ยังไม่ได้ใช้แสดงผลใน UI ปัจจุบัน
@@ -102,14 +103,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
         console.log("No previous forecast found in DB.");
       }
 
-      // โหลดข้อมูลบันทึกจากกล้อง; หากยังไม่มีข้อมูลให้แสดงภาพจาก frame endpoint แทน
+      // โหลดข้อมูลบันทึกและภาพล่าสุดของทั้ง 2 โซนจาก result-yolo
       try {
-        const cam = await getLatestCameraLog(cameraId);
-        setCameraLog(cam);
+        const [camMain, camDock] = await Promise.all([
+          getLatestCameraLog('cam_main').catch((err) => {
+            console.warn('cam_main log error:', err);
+            return null;
+          }),
+          getLatestCameraLog('cam_dock').catch((err) => {
+            console.warn('cam_dock log error:', err);
+            return null;
+          }),
+        ]);
+
+        const newKeys: Partial<Record<CameraId, string>> = {};
+        const newCounts: Partial<Record<CameraId, number>> = {};
+
+        if (camMain) {
+          if (camMain.image_key) newKeys.cam_main = camMain.image_key;
+          if (typeof camMain.detected_boxes === 'number') newCounts.cam_main = camMain.detected_boxes;
+        }
+        if (camDock) {
+          if (camDock.image_key) newKeys.cam_dock = camDock.image_key;
+          if (typeof camDock.detected_boxes === 'number') newCounts.cam_dock = camDock.detected_boxes;
+        }
+
+        setSampledFrameKeys((prev) => ({ ...prev, ...newKeys }));
+        setSampledDetectionCounts((prev) => ({ ...prev, ...newCounts }));
+
+        const activeCam = cameraId === 'cam_main' ? camMain : camDock;
+        if (activeCam) {
+          setCameraLog(activeCam);
+        }
+
         const camHist = await getCameraLogsHistory(cameraId);
         setCameraHistory(camHist?.logs || []);
       } catch (e) {
-        console.warn("Camera logs not available yet");
+        console.warn("Camera logs not available yet", e);
       }
     } catch (e) {
       console.error("Failed to load dashboard data:", e);
@@ -123,27 +153,63 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
 
   useEffect(() => {
     setCameraVideoError(false);
+    setCameraFrameTime(Date.now());
   }, [cameraId]);
 
-  // รีเฟรช fallback frame ทุกนาที; sampled frame คงภาพของ Predict รอบล่าสุดไว้
+  // ตรวจสอบอัปเดตผลลัพธ์ภาพล่าสุดของทั้ง 2 โซนทุกนาที
   useEffect(() => {
-    if (sampledFrameKeys[cameraId]) return;
-
-    const timer = setInterval(() => {
-      setCameraFrameTime(Date.now());
-      getLatestCameraLog(cameraId).then(setCameraLog).catch(console.error);
+    const timer = setInterval(async () => {
+      try {
+        const [camMain, camDock] = await Promise.all([
+          getLatestCameraLog('cam_main').catch(() => null),
+          getLatestCameraLog('cam_dock').catch(() => null),
+        ]);
+        const newKeys: Partial<Record<CameraId, string>> = {};
+        const newCounts: Partial<Record<CameraId, number>> = {};
+        if (camMain) {
+          if (camMain.image_key) newKeys.cam_main = camMain.image_key;
+          if (typeof camMain.detected_boxes === 'number') newCounts.cam_main = camMain.detected_boxes;
+        }
+        if (camDock) {
+          if (camDock.image_key) newKeys.cam_dock = camDock.image_key;
+          if (typeof camDock.detected_boxes === 'number') newCounts.cam_dock = camDock.detected_boxes;
+        }
+        setSampledFrameKeys((prev) => ({ ...prev, ...newKeys }));
+        setSampledDetectionCounts((prev) => ({ ...prev, ...newCounts }));
+        const activeCam = cameraId === 'cam_main' ? camMain : camDock;
+        if (activeCam) setCameraLog(activeCam);
+        setCameraFrameTime(Date.now());
+      } catch (err) {
+        console.error(err);
+      }
     }, 60000);
     return () => clearInterval(timer);
-  }, [cameraId, sampledFrameKeys]);
+  }, [cameraId]);
 
-  // สั่งให้อนุมานและรีเฟรชภาพ BBox ทันทีด้วยตนเอง
+  // สั่งให้อนุมานและรีเฟรชภาพ BBox ทันทีด้วยตนเองสำหรับทั้ง 2 โซน
   const handleRefreshCameraFrame = async () => {
     setIsRefreshingFrame(true);
     setCameraVideoError(false);
     setCameraFrameTime(Date.now());
     try {
-      const cam = await getLatestCameraLog(cameraId);
-      setCameraLog(cam);
+      const [camMain, camDock] = await Promise.all([
+        getLatestCameraLog('cam_main').catch(() => null),
+        getLatestCameraLog('cam_dock').catch(() => null),
+      ]);
+      const newKeys: Partial<Record<CameraId, string>> = {};
+      const newCounts: Partial<Record<CameraId, number>> = {};
+      if (camMain) {
+        if (camMain.image_key) newKeys.cam_main = camMain.image_key;
+        if (typeof camMain.detected_boxes === 'number') newCounts.cam_main = camMain.detected_boxes;
+      }
+      if (camDock) {
+        if (camDock.image_key) newKeys.cam_dock = camDock.image_key;
+        if (typeof camDock.detected_boxes === 'number') newCounts.cam_dock = camDock.detected_boxes;
+      }
+      setSampledFrameKeys((prev) => ({ ...prev, ...newKeys }));
+      setSampledDetectionCounts((prev) => ({ ...prev, ...newCounts }));
+      const activeCam = cameraId === 'cam_main' ? camMain : camDock;
+      if (activeCam) setCameraLog(activeCam);
     } catch (e) {
       console.error(e);
     } finally {
@@ -184,11 +250,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     setCameraSampleError(null);
     // ล้างผลเก่าเพื่อไม่ให้ผู้ใช้เข้าใจผิดว่าเป็นผลจากคำขอครั้งใหม่
     setForecastData(null);
+    const currentVideoTime = videoRef.current?.currentTime;
+    const currentTimestamp = Date.now() / 1000;
     try {
       const res = await queueForecast({
         product: PRODUCT_NAME,
         forecast_horizon: horizon,
-        p: 1, d: 1, q: 1
+        p: 1, d: 1, q: 1,
+        video_time: typeof currentVideoTime === 'number' && !isNaN(currentVideoTime) ? currentVideoTime : undefined,
+        timestamp: currentTimestamp,
       });
       
       const jobId = res.job_id;
@@ -196,23 +266,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       setStatusSubMsg('Please wait, ARIMA is predicting stock values...');
       
       // ตรวจสถานะงานเป็นระยะ เพราะ backend ประมวลผลแบบ asynchronous
-      let displayedSampleKey = sampledFrameKeys[cameraId];
       const poll = setInterval(async () => {
         try {
           const statusRes = await getForecastJobStatus(jobId);
-          const sampledFrameKey: unknown = statusRes.sampled_frames?.[cameraId]
-            ?? statusRes.result?.sampled_frames?.[cameraId];
-          const sampledDetectionCount: unknown = statusRes.sampled_detections?.[cameraId]
-            ?? statusRes.result?.sampled_detections?.[cameraId];
-          if (typeof sampledFrameKey === 'string' && sampledFrameKey !== displayedSampleKey) {
-            displayedSampleKey = sampledFrameKey;
-            setSampledFrameKeys((current) => ({ ...current, [cameraId]: sampledFrameKey }));
+          const allFrames = (statusRes.sampled_frames ?? statusRes.result?.sampled_frames) as Partial<Record<CameraId, string>> | undefined;
+          const allDetections = (statusRes.sampled_detections ?? statusRes.result?.sampled_detections) as Partial<Record<CameraId, number>> | undefined;
+
+          if (allFrames && typeof allFrames === 'object' && Object.keys(allFrames).length > 0) {
+            setSampledFrameKeys((current) => ({
+              ...current,
+              ...allFrames,
+            }));
             setCameraFrameTime(Date.now());
           }
-          if (typeof sampledDetectionCount === 'number') {
-            setSampledDetectionCounts((current) => ({ ...current, [cameraId]: sampledDetectionCount }));
-            setCameraLog((current: any) => ({ ...current, detected_boxes: sampledDetectionCount }));
+
+          if (allDetections && typeof allDetections === 'object' && Object.keys(allDetections).length > 0) {
+            setSampledDetectionCounts((current) => ({
+              ...current,
+              ...allDetections,
+            }));
+            if (typeof allDetections[cameraId] === 'number') {
+              setCameraLog((current: any) => ({ ...current, detected_boxes: allDetections[cameraId] }));
+            }
           }
+
           const samplingError = statusRes.sampling_error ?? statusRes.result?.sampling_error;
           if (samplingError) {
             setCameraSampleError(`ไม่สามารถ sampling ภาพรอบนี้ได้: ${samplingError}`);
@@ -221,10 +298,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
           if (statusRes.status === 'completed') {
             clearInterval(poll);
             setForecastData(statusRes.result);
-            await loadDashboardData();
-            if (typeof sampledDetectionCount === 'number') {
-              setCameraLog((current: any) => ({ ...current, detected_boxes: sampledDetectionCount }));
+            if (allFrames && typeof allFrames === 'object') {
+              setSampledFrameKeys((current) => ({
+                ...current,
+                ...allFrames,
+              }));
             }
+            if (allDetections && typeof allDetections === 'object') {
+              setSampledDetectionCounts((current) => ({
+                ...current,
+                ...allDetections,
+              }));
+              if (typeof allDetections[cameraId] === 'number') {
+                setCameraLog((current: any) => ({ ...current, detected_boxes: allDetections[cameraId] }));
+              }
+            }
+            await loadDashboardData();
             setLoading(false);
             setStatusMsg('');
             setStatusSubMsg('');
@@ -627,10 +716,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                   {cameraMode === 'yolo' ? (
                     <>
                       <img
-                        key={`${cameraId}-${cameraFrameTime}`}
-                        src={sampledFrameKeys[cameraId]
-                          ? getCameraSampledFrameUrl(cameraId, sampledFrameKeys[cameraId], cameraFrameTime)
-                          : getCameraFrameUrl(cameraId, cameraFrameTime)}
+                        key={`${cameraId}-${cameraFrameTime}-${sampledFrameKeys[cameraId] || 'latest'}`}
+                        src={getCameraSampledFrameUrl(cameraId, sampledFrameKeys[cameraId] || 'latest', cameraFrameTime)}
                         alt={`YOLO Detection - ${CAMERA_SOURCES[cameraId].label}`}
                         onError={() => setCameraVideoError(true)}
                         className="absolute inset-0 w-full h-full object-cover"
@@ -642,17 +729,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                         </span>
-                        YOLO11 BBox {sampledFrameKeys[cameraId] ? '(ภาพ sampling ล่าสุด)' : '(อัปเดตทุก 1 นาที)'}
+                        YOLO11 BBox (result-yolo ล่าสุด)
                       </div>
 
                       {/* จำนวนกล่องที่ตรวจจับได้จริง */}
-                      {(sampledFrameKeys[cameraId]
-                        ? sampledDetectionCounts[cameraId] ?? cameraLog?.detected_boxes
-                        : cameraLog?.detected_boxes) !== undefined && (
+                      {(sampledDetectionCounts[cameraId] ?? cameraLog?.detected_boxes) !== undefined && (
                         <div className="absolute top-3 right-3 bg-blue-900/80 backdrop-blur-md text-white text-xs px-2.5 py-1 rounded-md font-semibold border border-blue-400/40">
-                          📦 ตรวจพบ {sampledFrameKeys[cameraId]
-                            ? sampledDetectionCounts[cameraId] ?? cameraLog?.detected_boxes
-                            : cameraLog?.detected_boxes} พาเลท
+                          📦 ตรวจพบ {sampledDetectionCounts[cameraId] ?? cameraLog?.detected_boxes} พาเลท
                         </div>
                       )}
 
@@ -667,6 +750,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                   ) : (
                     <>
                       <video
+                        ref={videoRef}
                         key={cameraId}
                         src={CAMERA_SOURCES[cameraId].src}
                         autoPlay
@@ -703,8 +787,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                     {cameraMode === 'yolo' ? (
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        แสดงกรอบ BBox จริงจากโมเดล YOLO
-                        {sampledFrameKeys[cameraId] ? ' จาก sampling รอบ Predict ล่าสุด' : ' (อัปเดตทุก 1 นาที)'}
+                        แสดงกรอบ BBox จริงจากโมเดล YOLO (ดึงจาก MinIO result-yolo ล่าสุดของทั้ง 2 โซน)
                       </span>
                     ) : (
                       <span>Playing the selected camera video feed without detection overlay.</span>

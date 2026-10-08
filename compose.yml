@@ -78,7 +78,7 @@ services:
 
   # MinIO เก็บไฟล์ผ่าน API ที่เข้ากันได้กับ S3 เช่น dataset และ model artifacts
   minio:
-    image: bitnami/minio:latest
+    image: minio/minio:latest
     user: "0"
     ports: 
       - "9000:9000"       # พอร์ต 9000 เปิด S3 API ให้ backend/workers อ่านและเขียน object
@@ -105,20 +105,21 @@ services:
 
   # สร้าง Buckets เริ่มต้นใน MinIO ให้พร้อมใช้โดยอัตโนมัติ
   minio-init:
-    image: bitnami/minio:latest
+    image: minio/minio:latest
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\";
-      mc mb --ignore-existing local/mlflow-artifacts;
-      mc mb --ignore-existing local/datasets;
-      mc mb --ignore-existing local/models;
-      mc mb --ignore-existing local/ai-ecosystem-data;
-      mc mb --ignore-existing local/sampling-camera;
-      exit 0;
-      "
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing local/mlflow-artifacts
+        mc mb --ignore-existing local/datasets
+        mc mb --ignore-existing local/models
+        mc mb --ignore-existing local/ai-ecosystem-data
+        mc mb --ignore-existing local/sampling-camera
+        mc mb --ignore-existing local/result-yolo
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password123}
@@ -144,9 +145,11 @@ services:
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-admin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
+      - SAMPLING_BUCKET=sampling-camera
+      - RESULT_YOLO_BUCKET=result-yolo
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:8080"]
       - OTEL_SERVICE_NAME=fastapi_backend
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - WATCHFILES_FORCE_POLLING=true
       - HF_REPO_ID=${HF_REPO_ID:-kkshaolin/yolo_box}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -155,6 +158,8 @@ services:
       - ./backend/alembic:/app/alembic:ro
       - ./backend/alembic.ini:/app/alembic.ini:ro
       - ./storage:/app/storage
+      - ./frontend/public:/frontend/public:ro
+      - ./frontend/public:/app/frontend/public:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -196,12 +201,20 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - STORAGE_ROOT=/app/storage
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-admin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
+      - MINIO_SECURE=false
+      - SAMPLING_BUCKET=sampling-camera
+      - RESULT_YOLO_BUCKET=result-yolo
       - HF_REPO_ID=${HF_REPO_ID:-kkshaolin/yolo_box}
       - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       - ./storage:/app/storage
       - ./workers:/app
       - ./backend/src:/backend/src
+      - ./frontend/public:/frontend/public:ro
+      - ./frontend/public:/app/frontend/public:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -260,6 +273,8 @@ services:
       - ./storage:/app/storage
       - ./workers:/app
       - ./backend/src:/backend/src
+      - ./frontend/public:/frontend/public:ro
+      - ./frontend/public:/app/frontend/public:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -343,55 +358,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-
-
-
-  # ดึงข้อมูลตลาด/การเงิน/การซื้อขายตามกำหนด; โค้ดอยู่ใน workers/data_worker/
-  data-worker:
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-    build:
-      context: ./workers
-      dockerfile: Dockerfile.data
-    command: ["python", "-m", "arq", "data_worker.worker.WorkerSettings"]
-    restart: unless-stopped
-    environment:
-      - TZ=Asia/Bangkok               # cron ใน data_worker.py อิงเวลานี้
-      - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-admin}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-password123}
-      - DATASETS_BUCKET=datasets
-      - STOCK_SYMBOLS=TU,ASIAN,CFRESH,TC,SSF
-      - FX_SYMBOLS=USDTHB=X
-    volumes:
-      - ./workers:/app                # แก้โค้ดแล้ว docker compose restart data-worker ได้เลย
-    depends_on:
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-      backend:
-        condition: service_healthy    # backend เตรียมตารางฐานข้อมูลตอนเริ่มก่อนให้ worker ทำงาน
-    healthcheck:
-      test: ["CMD", "python", "/app/healthcheck.py", "data_worker.worker.WorkerSettings"]
-      interval: 60s
-      timeout: 10s
-      start_period: 10s
-      retries: 3
-    networks:
-      - ai-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "3"
-
   # MLflow เก็บ metadata ของการทดลองใน PostgreSQL และ artifacts ใน MinIO
   mlflow:
     build:

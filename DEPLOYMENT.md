@@ -28,7 +28,7 @@
   - PostgreSQL (พอร์ต `5432`)
   - Redis (พอร์ต `6379`)
   - MinIO S3 API (พอร์ต `9000`)
-  - OpenTelemetry Collector (พอร์ต `4317` / `4318`)
+  - OpenTelemetry Collector: OTLP/gRPC พอร์ต `4317`; OTLP/HTTP พอร์ต `4318` (Backend ส่ง traces/metrics ผ่าน `/v1/traces` และ `/v1/metrics`)
   - Loki (พอร์ต `3100`) & Tempo (พอร์ต `3200`)
 
 ---

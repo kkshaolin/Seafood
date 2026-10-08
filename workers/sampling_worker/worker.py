@@ -44,7 +44,14 @@ async def run_sampling_task(ctx, **kwargs) -> dict:
     job_id = ctx.get("job_id", "unknown")
     logger.info("Starting on-demand camera sampling task [job_id=%s]...", job_id)
     try:
-        result = await sample_camera_frames(crop=True, record_db=True)
+        result = await sample_camera_frames(
+            crop=True,
+            record_db=True,
+            video_time=kwargs.get("video_time"),
+            video_time_a=kwargs.get("video_time_a"),
+            video_time_b=kwargs.get("video_time_b"),
+            predict_timestamp=kwargs.get("timestamp") or kwargs.get("predict_timestamp"),
+        )
         logger.info("Camera sampling task completed successfully [job_id=%s]: ZoneA=%s, ZoneB=%s",
                     job_id, result.get("zone_a_key"), result.get("zone_b_key"))
         return result
@@ -54,7 +61,7 @@ async def run_sampling_task(ctx, **kwargs) -> dict:
 
 
 async def scheduled_daily_sampling(ctx) -> dict:
-    """Automated daily sampling cron job. Checks DAILY_SAMPLING_ENABLED before executing."""
+    """Automated daily sampling cron job (disabled by default, sampling runs on predict)."""
     daily_enabled = os.getenv("DAILY_SAMPLING_ENABLED", "false").lower() in ("true", "1", "yes")
     if not daily_enabled:
         logger.info("Daily camera sampling skipped: DAILY_SAMPLING_ENABLED is currently disabled (OFF).")
@@ -73,7 +80,7 @@ async def scheduled_daily_sampling(ctx) -> dict:
 class WorkerSettings:
     """ARQ Worker Settings for sampling_worker."""
     functions = [run_sampling_task, scheduled_daily_sampling]
-    cron_jobs = [cron(scheduled_daily_sampling, hour=0, minute=0)]
+    cron_jobs = []  # ปิด cron ทุกตัว เพื่อให้ sampling ดึงเฉพาะตอนกด predict เท่านั้น
     queue_name = "sampling_queue"
     job_timeout = 180
     max_jobs = 4

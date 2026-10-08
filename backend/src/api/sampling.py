@@ -61,21 +61,33 @@ class SamplingStatusResponse(BaseModel):
     latest_sample_time: Optional[datetime] = None
 
 
+class SamplingCaptureRequest(BaseModel):
+    video_time: Optional[float] = None
+    video_time_a: Optional[float] = None
+    video_time_b: Optional[float] = None
+    timestamp: Optional[float] = None
+
+
 @router.post("/capture", response_model=SamplingJobResponse, status_code=status.HTTP_202_ACCEPTED,
              summary="สั่งดึงภาพจากกล้องทั้ง 2 ตัว ครอปภาพ และอัปโหลดขึ้น MinIO ทันที")
-async def trigger_camera_sampling(redis=Depends(get_redis_pool)):
+async def trigger_camera_sampling(
+    payload: Optional[SamplingCaptureRequest] = None,
+    redis=Depends(get_redis_pool)
+):
     """สั่งงาน Sampling ผ่าน ARQ sampling_queue.
 
-    Worker จะดึงเฟรมจาก mockA.mp4 (Zone A) และ mockB.mp4 (Zone B),
-    ครอปบริเวณตรวจนับ, อัปโหลดเข้า MinIO bucket 'sampling-camera',
+    Worker จะดึงเฟรมจาก mockA.mp4 (Zone A) และ mockB.mp4 (Zone B) จาก frontend/public/,
+    ครอปบริเวณตรวจนับ ณ เวลาที่กดคำสั่ง, อัปโหลดเข้า MinIO bucket 'sampling-camera',
     และบันทึกจำนวนกล่องลงตาราง 'box_logs'
     """
     try:
         job_id = str(uuid.uuid4())
+        kwargs = payload.model_dump() if payload else {}
         await redis.enqueue_job(
             "run_sampling_task",
             _job_id=job_id,
             _queue_name="sampling_queue",
+            **kwargs,
         )
         return SamplingJobResponse(
             job_id=job_id,

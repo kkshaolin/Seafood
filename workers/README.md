@@ -10,8 +10,7 @@
 - `adjust_database_data.py`: งานปรับ/นำเข้าข้อมูลฐานข้อมูลที่เรียกด้วยตนเอง
 - `healthcheck.py`: health check ของ ARQ processes ตามชื่อ WorkerSettings
 - `requirements.txt`, `requirements-data.txt`: dependency sets ของ worker images
-- `Dockerfile`, `Dockerfile.data`: build images; Dockerfile.data ปัจจุบันอ้างถึง source package `data_worker/`
-
-Compose ประกาศ `forecasting-worker`, `sampling-worker`, `training-worker` และ `data-worker`. อย่างไรก็ตาม `data_worker/` ไม่มีอยู่ใน tracked source ปัจจุบัน แม้ Compose และ `Dockerfile.data` จะอ้างถึงแพ็กเกจนี้ จึงอย่าถือว่า data-worker ทำงานได้จาก checkout นี้โดยไม่มี source เพิ่มเติม
+- `Dockerfile`: build image สำหรับ `forecasting-worker` และ `training-worker`; source ของ `data_worker/` ไม่ได้อยู่ใน checkout นี้ จึงไม่ถูกคัดลอก
+Compose เปิด `forecasting-worker`, `sampling-worker` และ `training-worker`. `data-worker` ยังไม่เปิดใช้งานจนกว่าจะเพิ่ม source package `data_worker/` กลับมา
 
 ข้อกำหนดของ inventory CSV ที่ seed ต้องการและข้อกำหนด YOLO weights/dataset ระบุไว้ใน [README หลัก](../README.md).

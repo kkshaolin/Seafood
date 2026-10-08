@@ -111,19 +111,6 @@ services:
         max-size: "20m"
         max-file: "5"
 
-  data-worker:
-    command: ["python", "-m", "arq", "data_worker.worker.WorkerSettings"]
-    restart: always
-    environment:
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.production}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.production}
-    volumes: []
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "5"
-
   # -------------------------------------------------------------
   # Database & Broker Security (Close public host ports)
   # -------------------------------------------------------------

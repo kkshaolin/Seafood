@@ -46,8 +46,7 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# คัดลอก source ของ worker ทั้งสามแพ็กเกจที่ image นี้อาจต้องใช้
-COPY data_worker/ ./data_worker/
+# คัดลอก source ของ worker ที่อยู่ใน checkout นี้
 COPY inference_worker/ ./inference_worker/
 COPY training_worker/ ./training_worker/
 COPY inventory_data.py healthcheck.py seed_inventory.py ./

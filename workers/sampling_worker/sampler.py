@@ -1,21 +1,18 @@
-"""Core Camera Sampling, YOLO Detection, and Inventory Sync Service.
+"""Camera Sampling Service (Sampling Worker).
 
-Captures frames from Zone A (cam_main) and Zone B (cam_dock) mock videos,
-crops the region of interest, uploads to MinIO bucket 'sampling-camera'
-under 'ZoneA/' and 'ZoneB/', runs YOLO model to detect box count,
-records the detection in PostgreSQL 'box_logs', and syncs the daily
-and monthly inventories tables.
+Captures raw/cropped frames from Zone A (mockA.mp4) and Zone B (mockB.mp4)
+mock videos located strictly in 'frontend/public/', and uploads them to MinIO
+bucket 'sampling-camera' under 'ZoneA/' and 'ZoneB/'.
 """
 
 import io
 import logging
 import os
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple
 
 import cv2
-import numpy as np
 from minio import Minio
 
 logger = logging.getLogger("sampling_worker.sampler")
@@ -31,8 +28,6 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "password123")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
-
-_YOLO_MODEL = None
 
 
 def get_minio_client() -> Minio:
@@ -51,112 +46,44 @@ def ensure_bucket(client: Minio, bucket_name: str) -> None:
 
 
 def find_video_path(zone_suffix: str) -> Path:
-    """Locate mock video for Zone A (mockA.mp4) or Zone B (mockB.mp4)."""
+    """Locate mock video for Zone A (mockA.mp4) or Zone B (mockB.mp4) strictly from frontend/public/."""
     filename = f"mock{zone_suffix.upper()}.mp4"
     candidates = [
-        Path(__file__).resolve().parent / "mock_videos" / filename,
-        Path("/app/sampling_worker/mock_videos") / filename,
-        Path("/app/storage/data/videos") / filename,
-        Path(__file__).resolve().parents[2] / "storage" / "data" / "videos" / filename,
         Path(__file__).resolve().parents[2] / "frontend" / "public" / filename,
-        Path("storage/data/videos") / filename,
         Path("frontend/public") / filename,
+        Path("/app/frontend/public") / filename,
+        Path("/frontend/public") / filename,
     ]
     for p in candidates:
         if p.is_file():
             return p
-    raise FileNotFoundError(f"Mock video {filename} not found in any candidate path: {[str(c) for c in candidates]}")
+    raise FileNotFoundError(f"Mock video {filename} not found in frontend/public/: {[str(c) for c in candidates]}")
 
 
-def load_yolo_model():
-    """Load trained YOLO model (singleton). Prioritizes yolo11n_v3.pt."""
-    global _YOLO_MODEL
-    if _YOLO_MODEL is not None:
-        return _YOLO_MODEL
-
-    from ultralytics import YOLO
-
-    candidates = [
-        Path("/tmp/best.pt"),
-        Path("/app/storage/models/non_time_serie/yolo11n_v3.pt"),
-        Path("storage/models/non_time_serie/yolo11n_v3.pt"),
-        Path(__file__).resolve().parents[2] / "storage" / "models" / "non_time_serie" / "yolo11n_v3.pt",
-        Path("/app/storage/models/non_time_serie/yolo11n.pt"),
-        Path("storage/models/non_time_serie/yolo11n.pt"),
-        Path(__file__).resolve().parents[2] / "storage" / "models" / "non_time_serie" / "yolo11n.pt",
-    ]
-    for p in candidates:
-        if p.is_file():
-            try:
-                logger.info("Loading YOLO model from: %s", p)
-                model = YOLO(str(p))
-                # Verify box / delivery_box class presence
-                class_names = list(model.names.values()) if hasattr(model, "names") else []
-                if any("box" in name.lower() for name in class_names):
-                    logger.info("Verified box detection model (%s) with classes: %s", p.name, model.names)
-                    _YOLO_MODEL = model
-                    return _YOLO_MODEL
-                else:
-                    logger.warning("Model %s does not contain box class: %s", p, model.names)
-            except Exception as e:
-                logger.warning("Could not load YOLO from %s: %s", p, e)
-
-    raise FileNotFoundError(
-        "Trained box detection model not found or invalid! "
-        "Expected yolo11n_v3.pt at storage/models/non_time_serie/yolo11n_v3.pt. "
-        "Silently falling back to raw COCO base weights is strictly forbidden."
-    )
-
-
-def detect_boxes_with_yolo(jpeg_bytes: bytes, zone: str) -> Tuple[int, float, bytes]:
-    """Run YOLO inference and return the count, confidence, and annotated frame.
-
-    A valid frame with no detections returns (0, 0.0) and the unmarked frame.
-    """
-    try:
-        model = load_yolo_model()
-        nparr = np.frombuffer(jpeg_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img is None:
-            raise ValueError("Failed to decode JPEG bytes for YOLO inference")
-
-        results = model.predict(img, conf=0.15, verbose=False)
-        boxes = results[0].boxes
-        det_count = len(boxes)
-
-        if det_count > 0:
-            avg_conf = float(boxes.conf.mean())
-            final_count = det_count
-        else:
-            final_count = 0
-            avg_conf = 0.0
-
-        annotated_frame = results[0].plot(labels=True, conf=True)
-        success, buffer = cv2.imencode(
-            ".jpg", annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90]
-        )
-        if not success:
-            raise RuntimeError(f"Failed to encode annotated frame for Zone {zone}")
-
-        logger.info("YOLO detected %d boxes in Zone %s (conf=%.2f)", final_count, zone, avg_conf)
-        return final_count, avg_conf, buffer.tobytes()
-    except Exception as e:
-        logger.error("YOLO detection encountered error: %s", e)
-        raise
-
-
-def extract_and_crop_frame(video_path: Path, crop: bool = True) -> bytes:
-    """Reads a frame from video, crops it, and returns encoded JPEG bytes."""
+def extract_and_crop_frame(
+    video_path: Path,
+    crop: bool = True,
+    target_frame_idx: Optional[int] = None,
+    video_time: Optional[float] = None,
+    predict_timestamp: Optional[float] = None,
+) -> bytes:
+    """Reads a specific frame from video at the moment predict was requested, crops it, and returns encoded JPEG bytes."""
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Failed to open video file: {video_path}")
 
     try:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if total_frames > 5:
-            # Pick a frame within 10% to 90% range to avoid start/end black frames
-            import random
-            target_idx = random.randint(int(total_frames * 0.1), int(total_frames * 0.9))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        if total_frames > 0:
+            if target_frame_idx is not None:
+                target_idx = int(target_frame_idx) % total_frames
+            elif video_time is not None:
+                target_idx = int(video_time * fps) % total_frames
+            else:
+                # เฟรม ณ วินาทีที่กด Predict (คำนวณตาม timestamp ขณะกด)
+                current_time = predict_timestamp if predict_timestamp is not None else datetime.now(timezone.utc).timestamp()
+                target_idx = int((current_time * fps) % total_frames)
             cap.set(cv2.CAP_PROP_POS_FRAMES, target_idx)
 
         ret, frame = cap.read()
@@ -165,7 +92,7 @@ def extract_and_crop_frame(video_path: Path, crop: bool = True) -> bytes:
 
         h, w = frame.shape[:2]
         if crop:
-            # Crop center detection area (85% height, 85% width)
+            # Crop center detection area (84% height, 84% width)
             y_start = int(h * 0.08)
             y_end = int(h * 0.92)
             x_start = int(w * 0.08)
@@ -184,150 +111,81 @@ def extract_and_crop_frame(video_path: Path, crop: bool = True) -> bytes:
         cap.release()
 
 
-async def record_box_log_and_sync_inventory(
-    now: datetime,
-    zone_a_key: str,
-    zone_b_key: str,
-    boxes_a: int,
-    boxes_b: int,
-    confidence: float = 0.95,
-) -> None:
-    """Insert into box_logs and sync latest values into daily_inventories and monthly_inventories."""
-    import asyncpg
-    db_url = os.getenv(
-        "DATABASE_URL",
-        "postgresql+asyncpg://admin:secretpassword@postgres:5432/my_database"
-    )
-    clean_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-    conn = await asyncpg.connect(clean_url)
-    try:
-        total = boxes_a + boxes_b
-        image_summary = f"{zone_a_key};{zone_b_key}"
-        product_name = "Frozen Shrimp"
-        today_date = now.date()
+def get_latest_sampled_frame_keys(
+    client: Optional[Minio] = None,
+    bucket_name: Optional[str] = None
+) -> Tuple[Optional[str], Optional[str]]:
+    """Query MinIO bucket 'sampling-camera' to find the latest frame keys for Zone A and Zone B."""
+    if client is None:
+        client = get_minio_client()
+    b_name = bucket_name or MINIO_BUCKET
 
-        # 1. Insert into box_logs
-        await conn.execute(
-            """
-            INSERT INTO box_logs (time, product, boxes_a, boxes_b, total_boxes, camera_id, image_path, confidence, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-            """,
-            now,
-            product_name,
-            boxes_a,
-            boxes_b,
-            total,
-            "cam_main,cam_dock",
-            image_summary,
-            float(confidence),
-            now
-        )
-        logger.info("Recorded camera sampling to box_logs: ZoneA=%d, ZoneB=%d, Total=%d", boxes_a, boxes_b, total)
+    if not client.bucket_exists(b_name):
+        return None, None
 
-        # 2. Sync to daily_inventories (deduplicate and upsert for today)
-        await conn.execute(
-            """
-            INSERT INTO daily_inventories (time, product, boxes_a, boxes_b, total_boxes, inbound_boxes, outbound_boxes, created_at)
-            VALUES ($1, $2, $3, $4, $5, 0, 0, $6)
-            ON CONFLICT (time, product) DO UPDATE SET
-                boxes_a = EXCLUDED.boxes_a,
-                boxes_b = EXCLUDED.boxes_b,
-                total_boxes = EXCLUDED.total_boxes,
-                created_at = EXCLUDED.created_at;
-            """,
-            today_date,
-            product_name,
-            boxes_a,
-            boxes_b,
-            total,
-            now
-        )
-        logger.info("Synced latest camera detection to daily_inventories for %s (total=%d)", today_date, total)
+    def _get_latest_key(prefix: str) -> Optional[str]:
+        objs = list(client.list_objects(b_name, prefix=prefix, recursive=True))
+        if not objs:
+            return None
+        # Sort by object_name descending (keys are formatted as ZoneX/frame_YYYYMMDD_HHMMSS_ffffff.jpg)
+        objs.sort(key=lambda o: o.object_name, reverse=True)
+        return objs[0].object_name
 
-        # 3. Sync to monthly_inventories for the current month
-        month_date = today_date.replace(day=1)
-        await conn.execute(
-            """
-            INSERT INTO monthly_inventories (time, product, boxes_a, boxes_b, total_boxes, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (time, product) DO UPDATE SET
-                boxes_a = EXCLUDED.boxes_a,
-                boxes_b = EXCLUDED.boxes_b,
-                total_boxes = EXCLUDED.total_boxes,
-                created_at = EXCLUDED.created_at;
-            """,
-            month_date,
-            product_name,
-            boxes_a,
-            boxes_b,
-            total,
-            now
-        )
-        logger.info("Synced latest daily inventory to monthly_inventories for %s (total=%d)", month_date, total)
-
-    finally:
-        await conn.close()
+    return _get_latest_key("ZoneA/"), _get_latest_key("ZoneB/")
 
 
-async def sample_camera_frames(crop: bool = True, record_db: bool = True) -> dict:
-    """Capture frames from both cameras, upload to MinIO, run YOLO detection, and record in DB."""
+async def sample_camera_frames(
+    crop: bool = True,
+    record_db: bool = False,
+    video_time: Optional[float] = None,
+    video_time_a: Optional[float] = None,
+    video_time_b: Optional[float] = None,
+    predict_timestamp: Optional[float] = None,
+) -> dict:
+    """Capture frames from frontend/public mock videos at the predict moment and upload raw frames to MinIO 'sampling-camera'."""
     client = get_minio_client()
     ensure_bucket(client, MINIO_BUCKET)
 
     now = datetime.now(timezone.utc)
+    ts = predict_timestamp if predict_timestamp is not None else now.timestamp()
     timestamp_str = now.strftime("%Y%m%d_%H%M%S_%f")
 
-    # 1. Process Zone A (mockA.mp4)
+    # 1. Process Zone A (mockA.mp4 from frontend/public)
+    v_time_a = video_time_a if video_time_a is not None else video_time
     video_a_path = find_video_path("A")
-    jpeg_bytes_a = extract_and_crop_frame(video_a_path, crop=crop)
-    boxes_a, conf_a, annotated_bytes_a = detect_boxes_with_yolo(jpeg_bytes_a, "A")
+    jpeg_bytes_a = extract_and_crop_frame(
+        video_a_path, crop=crop, video_time=v_time_a, predict_timestamp=ts
+    )
     zone_a_key = f"ZoneA/frame_{timestamp_str}.jpg"
     client.put_object(
         bucket_name=MINIO_BUCKET,
         object_name=zone_a_key,
-        data=io.BytesIO(annotated_bytes_a),
-        length=len(annotated_bytes_a),
+        data=io.BytesIO(jpeg_bytes_a),
+        length=len(jpeg_bytes_a),
         content_type="image/jpeg",
     )
-    logger.info("Uploaded annotated Zone A frame: %s/%s (%d bytes)", MINIO_BUCKET, zone_a_key, len(annotated_bytes_a))
+    logger.info("Uploaded sampled Zone A frame to MinIO: %s/%s (%d bytes)", MINIO_BUCKET, zone_a_key, len(jpeg_bytes_a))
 
-    # 2. Process Zone B (mockB.mp4)
+    # 2. Process Zone B (mockB.mp4 from frontend/public)
+    v_time_b = video_time_b if video_time_b is not None else video_time
     video_b_path = find_video_path("B")
-    jpeg_bytes_b = extract_and_crop_frame(video_b_path, crop=crop)
-    boxes_b, conf_b, annotated_bytes_b = detect_boxes_with_yolo(jpeg_bytes_b, "B")
+    jpeg_bytes_b = extract_and_crop_frame(
+        video_b_path, crop=crop, video_time=v_time_b, predict_timestamp=ts
+    )
     zone_b_key = f"ZoneB/frame_{timestamp_str}.jpg"
     client.put_object(
         bucket_name=MINIO_BUCKET,
         object_name=zone_b_key,
-        data=io.BytesIO(annotated_bytes_b),
-        length=len(annotated_bytes_b),
+        data=io.BytesIO(jpeg_bytes_b),
+        length=len(jpeg_bytes_b),
         content_type="image/jpeg",
     )
-    logger.info("Uploaded annotated Zone B frame: %s/%s (%d bytes)", MINIO_BUCKET, zone_b_key, len(annotated_bytes_b))
-
-    # 3. Summarize YOLO Box Detection
-    total_boxes = boxes_a + boxes_b
-    avg_conf = (conf_a + conf_b) / 2.0
-
-    # 4. Record to DB box_logs and sync to daily & monthly inventories
-    if record_db:
-        await record_box_log_and_sync_inventory(
-            now=now,
-            zone_a_key=zone_a_key,
-            zone_b_key=zone_b_key,
-            boxes_a=boxes_a,
-            boxes_b=boxes_b,
-            confidence=avg_conf,
-        )
+    logger.info("Uploaded sampled Zone B frame to MinIO: %s/%s (%d bytes)", MINIO_BUCKET, zone_b_key, len(jpeg_bytes_b))
 
     return {
         "status": "success",
         "bucket": MINIO_BUCKET,
         "zone_a_key": zone_a_key,
         "zone_b_key": zone_b_key,
-        "boxes_A": boxes_a,
-        "boxes_B": boxes_b,
-        "total_boxes": total_boxes,
-        "confidence": avg_conf,
         "timestamp": now.isoformat(),
     }
