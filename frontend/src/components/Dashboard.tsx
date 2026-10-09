@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 // ฟังก์ชันเรียก API แยกตามความรับผิดชอบ: สต็อก, กล้อง, พยากรณ์, ตั้งค่า และประเมินความเสี่ยง
-import { getStockSummary, getStockHistory, getStockProducts } from '../api/stock';
+import { getStockSummary, getStockHistory, getStockProducts, StockSummary } from '../api/stock';
 import { getLatestCameraLog, getCameraLogsHistory, getCameraFrameUrl, getCameraSampledFrameUrl } from '../api/camera';
 import { queueForecast, getForecastJobStatus, queueTraining, getLatestForecast } from '../api/forecast';
 import { getSettings, updateSettings } from '../api/settings';
@@ -48,7 +48,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   
   // เก็บข้อมูลจาก API เพื่อให้ส่วนแสดงผลอัปเดตตามข้อมูลล่าสุด
   // summary, cameraLog และ cameraHistory ถูกโหลดไว้ แต่ยังไม่ได้ใช้แสดงผลใน UI ปัจจุบัน
-  const [summary, setSummary] = useState<any>(null);
+  const [summary, setSummary] = useState<StockSummary | null>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [forecastData, setForecastData] = useState<any>(null);
   const [cameraLog, setCameraLog] = useState<any>(null);
@@ -220,16 +220,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   // คำนวณความเสี่ยงใหม่เมื่อประวัติสต็อก ผลพยากรณ์ ข้อมูลกล้อง หรือการตั้งค่าเปลี่ยน
   useEffect(() => {
     const checkRisk = async () => {
-      const currentStock = historyData.length > 0 ? historyData[historyData.length - 1].quantity : 0;
+      const currentStockVal = typeof summary?.current_stock === 'number'
+        ? summary.current_stock
+        : (historyData.length > 0 ? historyData[historyData.length - 1].quantity : 0);
       const nextForecast = forecastData?.forecast?.[0]?.predicted_value;
 
-      // ดึงยอดพาเลทที่ตรวจพบจากกล้องทุกโซน
+      // ดึงยอดพาเลทที่ตรวจพบจากกล้องทุกโซน (หากมีใน summary หรือ state กล้อง)
       const countMain = sampledDetectionCounts['cam_main'] ?? (cameraId === 'cam_main' ? cameraLog?.detected_boxes : undefined);
       const countDock = sampledDetectionCounts['cam_dock'] ?? (cameraId === 'cam_dock' ? cameraLog?.detected_boxes : undefined);
 
       let detectedTotal: number | undefined = undefined;
       if (countMain !== undefined || countDock !== undefined) {
         detectedTotal = (countMain || 0) + (countDock || 0);
+      } else if (typeof summary?.current_stock === 'number') {
+        detectedTotal = summary.current_stock;
       } else if (typeof cameraLog?.detected_boxes === 'number') {
         detectedTotal = cameraLog.detected_boxes;
       }
@@ -238,7 +242,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       if (nextForecast !== undefined) {
         try {
           const r = await evaluateRisk({
-            current_stock: currentStock,
+            current_stock: currentStockVal,
             forecast_stock: nextForecast,
             detected_stock: detectedTotal,
             threshold: parseFloat(settings.low_stock_threshold || '50'),
@@ -253,7 +257,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       }
     };
     checkRisk();
-  }, [historyData, forecastData, settings, sampledDetectionCounts, cameraLog, cameraId]);
+  }, [historyData, forecastData, settings, sampledDetectionCounts, cameraLog, cameraId, summary]);
 
   // ขอให้ backend สร้างงานพยากรณ์ แล้วตรวจสอบสถานะงานจนเสร็จ ล้มเหลว หรือหมดเวลา
   const runForecast = async () => {
@@ -451,8 +455,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     ? (historyData.reduce((acc, curr) => acc + curr.quantity, 0) / historyData.length).toFixed(0) 
     : 0;
 
-  // เตรียมค่าที่การ์ดสรุปใช้: สต็อกล่าสุด, ค่าพยากรณ์งวดแรก และสถานะตามเกณฑ์ที่กำหนด
-  const currentStock = historyData.length > 0 ? historyData[historyData.length - 1].quantity : 0;
+  // เตรียมค่าที่การ์ดสรุปใช้: นำค่ายอดตรวจพบจริงจาก YOLO ที่บันทึกลง PostgreSQL มาแสดงเป็น Current Stock
+  const currentStock = typeof summary?.current_stock === 'number'
+    ? summary.current_stock
+    : (historyData.length > 0 ? historyData[historyData.length - 1].quantity : 0);
   const nextForecast = forecastData?.forecast?.[0]?.predicted_value?.toFixed(0) || '-';
   // ค่าคำนวณเกณฑ์แบบเดิมยังเก็บไว้แต่ไม่ได้ใช้; การ์ดความเสี่ยงใช้ผลจาก evaluateRisk ของ backend
   const isRisk = nextForecast !== '-' && parseInt(nextForecast) > 1500;
@@ -600,13 +606,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
               <div className="text-2xl font-bold text-gray-800">{nextForecast} Pallet</div>
             </div>
 
-            {/* 3. การ์ด Current Stock */}
+            {/* 3. การ์ด Current Stock (YOLO Detection from PostgreSQL) */}
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
               <div className="text-gray-500 mb-1 flex items-center justify-between">
                 <span>Current Stock</span>
                 <Box className="w-4 h-4 text-blue-500" />
               </div>
               <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} Pallet</div>
+              <div className="text-xs text-slate-500 mt-2 flex items-center justify-between">
+                <span>YOLO Detection (PostgreSQL)</span>
+                {summary?.yolo_boxes_a !== undefined && summary?.yolo_boxes_b !== undefined ? (
+                  <span className="font-mono text-[11px] text-blue-600 font-medium">A: {summary.yolo_boxes_a} | B: {summary.yolo_boxes_b}</span>
+                ) : (
+                  <span className="font-mono text-[11px] text-emerald-600 font-medium">Real-time Verified</span>
+                )}
+              </div>
             </div>
 
             {/* 4. การ์ด Average Monthly */}

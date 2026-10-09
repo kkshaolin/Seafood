@@ -33,6 +33,7 @@ import logging
 import os
 import sys
 
+from arq import cron
 from arq.connections import RedisSettings
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,13 @@ _handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(name)s 
 logger.addHandler(_handler)
 
 
+def monthly_arima_training_enabled():
+    """Return whether the opt-in monthly ARIMA training schedule is enabled."""
+    return os.getenv("MONTHLY_ARIMA_TRAINING_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 # ---------------------------------------------------------------------------
 # ARQ lifecycle hooks
 # ---------------------------------------------------------------------------
@@ -63,6 +71,13 @@ logger.addHandler(_handler)
 async def startup(ctx):
     """บันทึกข้อความเมื่อ ARQ เริ่ม worker ฝึกโมเดล"""
     logger.info("Training Worker starting up... (supports: arima, yolo)")
+    if monthly_arima_training_enabled():
+        logger.info(
+            "Monthly ARIMA training enabled: day 1 at 00:00 Asia/Bangkok for %s",
+            os.getenv("MONTHLY_ARIMA_PRODUCT", "Frozen_Seafood"),
+        )
+    else:
+        logger.info("Monthly ARIMA training is disabled")
 
 
 async def shutdown(ctx):
@@ -127,6 +142,28 @@ async def run_training_task(ctx, req_data: dict) -> dict:
         return {"status": "error", "model_type": model_type, "job_id": job_id, "error": str(e)}
 
 
+async def run_monthly_arima_training(ctx):
+    """Run the configured monthly ARIMA training job."""
+    product = os.getenv("MONTHLY_ARIMA_PRODUCT", "Frozen_Seafood")
+    logger.info("Starting scheduled monthly ARIMA training for product=%s", product)
+    result = await run_training_task(ctx, {
+        "model_type": "arima",
+        "product": product,
+        "p": None,
+        "d": None,
+        "q": None,
+        "forecast_horizon": 3,
+        "auto_order": True,
+    })
+    if result.get("status") != "success":
+        logger.error(
+            "Scheduled monthly ARIMA training failed for product=%s: %s",
+            product,
+            result.get("error", "training returned a non-success status"),
+        )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # ARQ WorkerSettings
 # ---------------------------------------------------------------------------
@@ -145,3 +182,19 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(os.getenv("REDIS_URL", "redis://redis:6379"))
     max_jobs = 1                # จำกัด 1 งานต่อครั้งเพราะ training ใช้ RAM สูง
     poll_delay = 0.5
+    cron_jobs = (
+        [
+            cron(
+                run_monthly_arima_training,
+                day=1,
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+                unique=True,
+                timeout=3600,
+            )
+        ]
+        if monthly_arima_training_enabled()
+        else []
+    )

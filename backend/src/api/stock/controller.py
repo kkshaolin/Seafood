@@ -123,7 +123,7 @@ async def get_summary(
 ) -> StockSummaryResponse:
     repo = StockRepository(session)
     summary_data = await repo.get_summary(start_date=start_date, end_date=end_date, product=product)
-    if isinstance(summary_data["latest_record"], date):
+    if isinstance(summary_data["latest_record"], date) and not isinstance(summary_data["latest_record"], datetime):
         summary_data["latest_record"] = datetime.combine(summary_data["latest_record"], time.min)
     return StockSummaryResponse(**summary_data)
 

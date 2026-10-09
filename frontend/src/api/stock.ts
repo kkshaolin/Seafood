@@ -7,8 +7,20 @@ export const getStock = async () => {
   return res.data;
 };
 
-export const getStockSummary = async () => {
-  const res = await apiClient.get('/stock/summary');
+export interface StockSummary {
+  current_stock: number;
+  average_stock: number;
+  minimum_stock: number;
+  maximum_stock: number;
+  latest_record?: string;
+  number_of_records: number;
+  yolo_detected_boxes?: number;
+  yolo_boxes_a?: number;
+  yolo_boxes_b?: number;
+}
+
+export const getStockSummary = async (): Promise<StockSummary> => {
+  const res = await apiClient.get<StockSummary>('/stock/summary');
   return res.data;
 };
 

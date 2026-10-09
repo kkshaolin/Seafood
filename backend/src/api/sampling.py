@@ -129,8 +129,20 @@ async def get_sampling_status(response: Response, session: AsyncSession = Depend
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/latest", response_model=Optional[BoxLogResponse], summary="ดึงรายการล่าสุดจากตาราง box_logs")
+async def get_latest_box_log(response: Response, session: AsyncSession = Depends(get_db_session)):
+    """ดึงข้อมูลรายการล่าสุดจากตาราง box_logs ที่ YOLO บันทึกลง PostgreSQL"""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    try:
+        stmt = select(BoxLog).order_by(desc(BoxLog.time)).limit(1)
+        res = await session.execute(stmt)
+        return res.scalars().first()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/logs", response_model=List[BoxLogResponse], summary="ดึงรายการประวัติที่บันทึกลง box_logs")
-async def list_box_logs(limit: int = 20, session: AsyncSession = Depends(get_db_session)):
+async def list_box_logs(response: Response, limit: int = 20, session: AsyncSession = Depends(get_db_session)):
     """ดึงข้อมูลรายการล่าสุดจากตาราง box_logs"""
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     try:

@@ -2,8 +2,8 @@
   "mae": 4.097121254313845,
   "rmse": 4.750611561392319,
   "mape": 5.9107406755000165,
-  "aic": 431.5153899735629,
-  "bic": 447.2548566679084,
+  "aic": 431.50922021101013,
+  "bic": 447.24868690535567,
   "p": 2,
   "d": 0,
   "q": 2,
@@ -32,6 +32,6 @@
     "mape_limitation": "MAPE is sensitive to near-zero actual values and undefined when actual is zero. MAE and RMSE provide more robust evaluation for inventory series.",
     "zero_actuals_present": false
   },
-  "trained_at": "2026-10-08T04:05:30.333146+00:00",
+  "trained_at": "2026-10-08T06:21:44.249954+00:00",
   "local_model_path": "/app/storage/models/time_serie/arima_Frozen_Seafood.pkl"
 }

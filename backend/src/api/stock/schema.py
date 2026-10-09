@@ -37,6 +37,9 @@ class StockSummaryResponse(BaseModel):
     maximum_stock: float
     latest_record: Optional[datetime] = None
     number_of_records: int
+    yolo_detected_boxes: Optional[int] = None
+    yolo_boxes_a: Optional[int] = None
+    yolo_boxes_b: Optional[int] = None
 
 
 class StockHistoryDataPoint(BaseModel):
