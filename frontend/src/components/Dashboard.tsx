@@ -6,7 +6,8 @@ import {
 } from 'recharts';
 // ไอคอนที่ใช้ประกอบปุ่ม หัวข้อ และการ์ดสรุปในหน้า Dashboard
 import { 
-  Activity, Box, Camera, AlertTriangle, TrendingUp, Settings, PlayCircle, RefreshCw, CheckCircle2, Eye, Video
+  Activity, Box, Camera, AlertTriangle, TrendingUp, Settings, PlayCircle, RefreshCw, CheckCircle2, Eye, Video,
+  DollarSign, Coins, Snowflake
 } from 'lucide-react';
 
 // ฟังก์ชันเรียก API แยกตามความรับผิดชอบ: สต็อก, กล้อง, พยากรณ์, ตั้งค่า และประเมินความเสี่ยง
@@ -34,7 +35,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   const [statusSubMsg, setStatusSubMsg] = useState('');
   
   // กำหนดสินค้าเริ่มต้น รวมถึงช่วงเวลาพยากรณ์และกล้องที่เลือก
-  const PRODUCT_NAME = "Frozen_Seafood";
+  const [productName, setProductName] = useState<string>("Frozen Shrimp");
   const [horizon, setHorizon] = useState(3);
   const [cameraId, setCameraId] = useState<CameraId>('cam_main');
   const [cameraVideoError, setCameraVideoError] = useState(false);
@@ -60,7 +61,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
   const [riskData, setRiskData] = useState<RiskResponse | null>(null);
 
   // โหลดข้อมูลทั้งหมดที่หน้า Dashboard ต้องใช้จาก API
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (targetProduct?: string) => {
+    const currentProd = targetProduct || productName;
     try {
       // โหลดค่าตั้งค่าก่อน เพื่อใช้ค่า forecast horizon ปัจจุบันกับหน้าจอ
       let loadedSettings = settings;
@@ -75,7 +77,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       setSummary(sum);
 
       // โหลดประวัติของสินค้า และจัดรูปวันที่/ปริมาณให้อยู่ในรูปแบบที่กราฟใช้ได้
-      const hist = await getStockHistory(PRODUCT_NAME);
+      const hist = await getStockHistory(currentProd);
       if (hist?.data) {
         const formatted = hist.data.map((r: any) => ({
           date: new Date(r.recorded_at).toISOString().split('T')[0].substring(0, 7), // YYYY-MM
@@ -95,8 +97,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
       
       // เรียกผลพยากรณ์ล่าสุดที่บันทึกไว้ เพื่อแสดงผลเดิมทันทีโดยไม่ต้องรันโมเดลใหม่
       try {
-        const latestForecast = await getLatestForecast(PRODUCT_NAME);
-        if (latestForecast && latestForecast.forecast.length > 0) {
+        const latestForecast = await getLatestForecast(currentProd);
+        if (latestForecast && latestForecast.forecast && latestForecast.forecast.length > 0) {
           setForecastData(latestForecast);
         }
       } catch (e) {
@@ -146,10 +148,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     }
   };
 
-  // โหลดชุดข้อมูลครั้งแรก และโหลดข้อมูลกล้องใหม่เมื่อผู้ใช้เปลี่ยนแหล่งกล้อง
+  // โหลดชุดข้อมูลครั้งแรก และโหลดข้อมูลกล้องใหม่เมื่อผู้ใช้เปลี่ยนแหล่งกล้องหรือสินค้า
   useEffect(() => {
-    loadDashboardData();
-  }, [cameraId]);
+    loadDashboardData(productName);
+  }, [cameraId, productName]);
 
   useEffect(() => {
     setCameraVideoError(false);
@@ -271,7 +273,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     const currentTimestamp = Date.now() / 1000;
     try {
       const res = await queueForecast({
-        product: PRODUCT_NAME,
+        product: productName,
         forecast_horizon: horizon,
         p: 1, d: 1, q: 1,
         video_time: typeof currentVideoTime === 'number' && !isNaN(currentVideoTime) ? currentVideoTime : undefined,
@@ -314,7 +316,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
 
           if (statusRes.status === 'completed') {
             clearInterval(poll);
-            setForecastData(statusRes.result);
+            if (statusRes.result && (statusRes.result as any).forecast) {
+              setForecastData(statusRes.result);
+            } else {
+              const latestForecast = await getLatestForecast(productName);
+              setForecastData(latestForecast);
+            }
             if (allFrames && typeof allFrames === 'object') {
               setSampledFrameKeys((current) => ({
                 ...current,
@@ -330,7 +337,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                 setCameraLog((current: any) => ({ ...current, detected_boxes: allDetections[cameraId] }));
               }
             }
-            await loadDashboardData();
+            await loadDashboardData(productName);
             setLoading(false);
             setStatusMsg('');
             setStatusSubMsg('');
@@ -372,7 +379,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
     setStatusSubMsg('Please wait, preparing training request...');
     try {
       const res = await queueTraining({
-        product: PRODUCT_NAME,
+        product: productName,
         forecast_horizon: horizon,
         p: 1, d: 1, q: 1
       });
@@ -473,16 +480,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
           </h1>
         </div>
         <div className="p-4 flex-1 overflow-y-auto space-y-6">
-
-
+          <div className="space-y-2">
+            <label className="font-semibold text-gray-700 text-xs uppercase tracking-wider">Product Target</label>
+            <select 
+              value={productName}
+              onChange={(e) => setProductName(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded text-gray-800 bg-white text-xs font-medium shadow-xs"
+            >
+              <option value="Frozen Shrimp">Frozen Shrimp (กุ้งแช่แข็ง - ข้อมูลหลัก)</option>
+              <option value="Frozen_Seafood">Frozen Seafood (อาหารทะเลรวม)</option>
+            </select>
+          </div>
 
           <div className="space-y-2">
-            <label className="font-semibold text-gray-700">Camera Source</label>
-            {/* เปลี่ยน cameraId เพื่อทดลองเลือกกล้อง; API ของกล้องยังไม่พร้อมใน backend ปัจจุบัน */}
+            <label className="font-semibold text-gray-700 text-xs uppercase tracking-wider">Camera Source</label>
             <select 
               value={cameraId}
               onChange={(e) => setCameraId(e.target.value as CameraId)}
-              className="w-full p-2 border rounded text-gray-700 bg-white"
+              className="w-full p-2 border border-gray-300 rounded text-gray-800 bg-white text-xs font-medium shadow-xs"
             >
               <option value="cam_main">Cam-Main (Zone A)</option>
               <option value="cam_dock">Cam-Dock (Zone B)</option>
@@ -515,7 +530,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
         <header className="bg-white border-b border-gray-200 p-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-4">
             <h2 className="text-xl font-semibold text-gray-800">Dashboard Overview</h2>
-            <button onClick={loadDashboardData} className="text-gray-500 hover:text-blue-600 transition" title="Refresh Data">
+            <button onClick={() => loadDashboardData(productName)} className="text-gray-500 hover:text-blue-600 transition" title="Refresh Data">
               <RefreshCw className="w-4 h-4" />
             </button>
           </div>
@@ -544,93 +559,143 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
             </div>
           )}
 
-          {/* การ์ดสรุป: ย้าย Risk Status มาไว้ซ้ายสุด */}
-          <div className="grid grid-cols-4 gap-4">
-            {/* 1. การ์ด Risk Status (ย้ายมาไว้ซ้ายสุด) */}
-            <div className={`p-4 rounded-xl border shadow-sm transition-all ${
-              riskData?.risk_level === 'Critical' ? 'bg-red-50 border-red-200' 
-              : riskData?.risk_level === 'Warning' ? 'bg-orange-50 border-orange-200' 
-              : 'bg-green-50 border-green-200'
-            }`}>
-              <div className={`${
-                riskData?.risk_level === 'Critical' ? 'text-red-700' 
-                : riskData?.risk_level === 'Warning' ? 'text-orange-700' 
-                : 'text-green-700'
-              } mb-1 flex items-center justify-between`}>
-                <span className="font-semibold text-xs tracking-wide uppercase">Risk Status</span>
-                <AlertTriangle className={`w-4 h-4 ${
-                  riskData?.risk_level === 'Critical' ? 'text-red-500' 
-                  : riskData?.risk_level === 'Warning' ? 'text-orange-500' 
-                  : 'text-green-500'
-                }`} />
-              </div>
-              <div className="flex items-baseline justify-between">
-                <div className={`text-2xl font-bold ${
-                  riskData?.risk_level === 'Critical' ? 'text-red-800' 
-                  : riskData?.risk_level === 'Warning' ? 'text-orange-800' 
-                  : 'text-green-800'
-                }`}>
-                  {riskData?.risk_level || (nextForecast !== '-' ? 'Evaluating...' : 'Unknown')}
+          {/* การ์ดสรุปตัวชี้วัดหลัก: 5 การ์ด ครอบคลุม Current Stock, Forecast, Financial Impact, Cold Storage Cost และ Risk */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            
+            {/* 1. การ์ด Current Stock (YOLO Detection from PostgreSQL) */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="text-gray-500 mb-1 flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider">Current Stock</span>
+                  <Box className="w-4 h-4 text-blue-500" />
                 </div>
-                {riskData?.diff_percent !== undefined && (
-                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
-                    riskData?.risk_level === 'Critical' ? 'bg-red-200/80 text-red-900' 
-                    : riskData?.risk_level === 'Warning' ? 'bg-orange-200/80 text-orange-900' 
-                    : 'bg-green-200/80 text-green-900'
-                  }`}>
-                    ต่างกัน {riskData.diff_percent}%
-                  </span>
-                )}
+                <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} Pallet</div>
               </div>
-              <div className={`text-xs mt-2 leading-relaxed font-medium ${
-                riskData?.risk_level === 'Critical' ? 'text-red-700' 
-                : riskData?.risk_level === 'Warning' ? 'text-orange-700' 
-                : 'text-green-700'
-              }`}>
-                {riskData?.reason || (nextForecast !== '-' ? 'Waiting for model forecast' : 'Run forecast to evaluate risk')}
-              </div>
-              {riskData?.detected_stock !== undefined && (
-                <div className="mt-2.5 pt-2 border-t border-gray-200/60 flex items-center justify-between text-[11px] text-gray-500 font-mono">
-                  <span>ตรวจพบจริง: <strong className="text-gray-800">{riskData.detected_stock}</strong> พาเลท</span>
-                  <span>ทำนาย: <strong className="text-gray-800">{Math.round(riskData.forecast_stock)}</strong> พาเลท</span>
-                </div>
-              )}
-            </div>
-
-            {/* 2. การ์ด Forecast (Next) */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-gray-500 mb-1 flex items-center justify-between">
-                <span>Forecast (Next)</span>
-                <TrendingUp className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div className="text-2xl font-bold text-gray-800">{nextForecast} Pallet</div>
-            </div>
-
-            {/* 3. การ์ด Current Stock (YOLO Detection from PostgreSQL) */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-gray-500 mb-1 flex items-center justify-between">
-                <span>Current Stock</span>
-                <Box className="w-4 h-4 text-blue-500" />
-              </div>
-              <div className="text-2xl font-bold text-gray-800">{currentStock.toLocaleString()} Pallet</div>
-              <div className="text-xs text-slate-500 mt-2 flex items-center justify-between">
-                <span>YOLO Detection (PostgreSQL)</span>
+              <div className="text-xs text-slate-500 mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+                <span>YOLO Detection</span>
                 {summary?.yolo_boxes_a !== undefined && summary?.yolo_boxes_b !== undefined ? (
                   <span className="font-mono text-[11px] text-blue-600 font-medium">A: {summary.yolo_boxes_a} | B: {summary.yolo_boxes_b}</span>
                 ) : (
-                  <span className="font-mono text-[11px] text-emerald-600 font-medium">Real-time Verified</span>
+                  <span className="font-mono text-[11px] text-emerald-600 font-medium">PostgreSQL Sync</span>
                 )}
               </div>
             </div>
 
-            {/* 4. การ์ด Average Monthly */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-              <div className="text-gray-500 mb-1 flex items-center justify-between">
-                <span>Average Monthly</span>
-                <Activity className="w-4 h-4 text-purple-500" />
+            {/* 2. การ์ด Forecast (Next) & Horizon Total */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="text-gray-500 mb-1 flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider">Forecast (Next)</span>
+                  <TrendingUp className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{nextForecast} Pallet</div>
               </div>
-              <div className="text-2xl font-bold text-gray-800">{avgStock} Pallet</div>
+              <div className="text-xs text-slate-500 mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+                <span>รวม {forecastData?.forecast?.length || horizon || 3} เดือน:</span>
+                <span className="font-bold text-emerald-700">
+                  {forecastData?.financial_impact?.total_predicted_boxes !== undefined
+                    ? `${forecastData.financial_impact.total_predicted_boxes.toLocaleString()} กล่อง` 
+                    : (nextForecast !== '-' ? `${Number(nextForecast) * (horizon || 3)} กล่อง` : '-')}
+                </span>
+              </div>
             </div>
+
+            {/* 3. การ์ด Forecast Stock Value (มูลค่าสต็อกพยากรณ์รวม 2,200 บ./กล่อง) */}
+            <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="text-emerald-800 mb-1 flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider">Forecast Stock Value</span>
+                  <Coins className="w-4 h-4 text-emerald-600" />
+                </div>
+                <div className="text-2xl font-black text-emerald-800 tracking-tight">
+                  ฿{forecastData?.financial_impact?.total_value_thb !== undefined
+                    ? forecastData.financial_impact.total_value_thb.toLocaleString() 
+                    : (nextForecast !== '-' ? (Number(nextForecast) * (horizon || 3) * 2200).toLocaleString() : '-')}
+                </div>
+              </div>
+              <div className="text-[11px] text-emerald-700 mt-2 pt-2 border-t border-emerald-200/60">
+                <div className="flex items-center justify-between font-medium">
+                  <span>2,200 ฿/กล่อง</span>
+                  <span className="text-[10px] text-emerald-600 font-mono">(220฿/กก. × 10)</span>
+                </div>
+                {forecastData?.financial_impact?.lower_value_thb && forecastData?.financial_impact?.upper_value_thb && (
+                  <div className="text-[10px] text-emerald-600 font-mono mt-0.5 truncate">
+                    95% CI: ฿{forecastData.financial_impact.lower_value_thb.toLocaleString()} - ฿{forecastData.financial_impact.upper_value_thb.toLocaleString()}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 4. การ์ด Cold Storage Cost (ต้นทุนห้องเย็น 45 บาท/กล่อง/เดือน) */}
+            <div className="bg-blue-50/70 p-4 rounded-xl border border-blue-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="text-blue-800 mb-1 flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider">Cold Storage Cost</span>
+                  <Snowflake className="w-4 h-4 text-blue-600" />
+                </div>
+                <div className="text-2xl font-black text-blue-800 tracking-tight">
+                  ฿{forecastData?.financial_impact?.estimated_holding_cost_monthly_thb !== undefined
+                    ? forecastData.financial_impact.estimated_holding_cost_monthly_thb.toLocaleString() 
+                    : (nextForecast !== '-' ? (Number(nextForecast) * 45).toLocaleString() : '-')}
+                  <span className="text-xs font-normal text-blue-600 ml-1">/ด.</span>
+                </div>
+              </div>
+              <div className="text-[11px] text-blue-700 mt-2 pt-2 border-t border-blue-200/60">
+                <div className="flex items-center justify-between font-medium">
+                  <span>อัตรา 45 ฿/กล่อง/เดือน</span>
+                </div>
+                <div className="text-[10px] text-blue-600 font-mono mt-0.5">
+                  รวม {forecastData?.forecast?.length || horizon || 3} ด.: ฿{(
+                    (forecastData?.financial_impact?.estimated_holding_cost_monthly_thb || 
+                    (nextForecast !== '-' ? Number(nextForecast) * 45 : 0)) * (horizon || 3)
+                  ).toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            {/* 5. การ์ด Risk Status */}
+            <div className={`p-4 rounded-xl border shadow-sm transition-all flex flex-col justify-between ${
+              riskData?.risk_level === 'Critical' ? 'bg-red-50 border-red-200' 
+              : riskData?.risk_level === 'Warning' ? 'bg-orange-50 border-orange-200' 
+              : 'bg-white border-gray-200'
+            }`}>
+              <div>
+                <div className={`${
+                  riskData?.risk_level === 'Critical' ? 'text-red-700' 
+                  : riskData?.risk_level === 'Warning' ? 'text-orange-700' 
+                  : 'text-green-700'
+                } mb-1 flex items-center justify-between`}>
+                  <span className="font-semibold text-xs tracking-wide uppercase">Risk Status</span>
+                  <AlertTriangle className={`w-4 h-4 ${
+                    riskData?.risk_level === 'Critical' ? 'text-red-500 animate-bounce' 
+                    : riskData?.risk_level === 'Warning' ? 'text-orange-500' 
+                    : 'text-green-500'
+                  }`} />
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <div className={`text-2xl font-bold ${
+                    riskData?.risk_level === 'Critical' ? 'text-red-800' 
+                    : riskData?.risk_level === 'Warning' ? 'text-orange-800' 
+                    : 'text-green-800'
+                  }`}>
+                    {riskData?.risk_level || (nextForecast !== '-' ? 'Normal' : 'Ready')}
+                  </div>
+                  {riskData?.diff_percent !== undefined && (
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
+                      riskData?.risk_level === 'Critical' ? 'bg-red-200/80 text-red-900' 
+                      : riskData?.risk_level === 'Warning' ? 'bg-orange-200/80 text-orange-900' 
+                      : 'bg-green-200/80 text-green-900'
+                    }`}>
+                      ต่างกัน {riskData.diff_percent}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="text-[11px] text-gray-500 mt-2 pt-2 border-t border-gray-100 truncate" title={riskData?.reason || 'Status Normal'}>
+                {riskData?.reason || 'Evaluation in threshold'}
+              </div>
+            </div>
+
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
@@ -702,6 +767,91 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                   <div className="flex items-center justify-between text-[11px] text-gray-500 px-1">
                     <span>แหล่งข้อมูล: <strong className="text-gray-700">PostgreSQL (monthly_inventories)</strong></span>
                     <span>ประเมินผล: <strong className="text-gray-700">Chronological Holdout (80/20)</strong></span>
+                  </div>
+                </div>
+              )}
+
+              {/* ตารางแจกแจงมูลค่าสต็อกและต้นทุนห้องเย็นรายเดือน 3 เดือนข้างหน้า */}
+              {forecastData && forecastData.forecast && forecastData.forecast.length > 0 && (
+                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                    <h3 className="font-semibold text-gray-800 flex items-center gap-2 text-sm">
+                      <Coins className="w-4 h-4 text-emerald-600" /> Financial Impact & Cold Chain Economics
+                    </h3>
+                    <span className="text-[11px] bg-blue-50 text-blue-700 font-medium px-2 py-0.5 rounded border border-blue-200">
+                      2,200 ฿/กล่อง • ค่าห้องเย็น 45 ฿/กล่อง/ด.
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
+                          <th className="py-2 px-3 font-semibold">เดือนที่พยากรณ์</th>
+                          <th className="py-2 px-3 font-semibold text-right">คาดการณ์ (กล่อง)</th>
+                          <th className="py-2 px-3 font-semibold text-right">95% CI (ต่ำ - สูง)</th>
+                          <th className="py-2 px-3 font-semibold text-right text-emerald-700">มูลค่าสต็อก (บาท)</th>
+                          <th className="py-2 px-3 font-semibold text-right text-blue-700">ค่าห้องเย็น (บาท/ด.)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {forecastData.forecast.map((f: any, idx: number) => {
+                          const boxes = Number(f.predicted_value) || 0;
+                          const valThb = boxes * 2200;
+                          const holdThb = boxes * 45;
+                          const lower = f.lower_bound != null ? Number(f.lower_bound) : '-';
+                          const upper = f.upper_bound != null ? Number(f.upper_bound) : '-';
+                          return (
+                            <tr key={idx} className="hover:bg-gray-50/80 transition-colors">
+                              <td className="py-2 px-3 font-medium text-gray-800 font-mono">
+                                {f.date ? f.date.substring(0, 7) : `Month +${idx+1}`}
+                              </td>
+                              <td className="py-2 px-3 text-right font-bold text-gray-800 font-mono">
+                                {boxes.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-right text-gray-500 font-mono text-[11px]">
+                                {lower !== '-' ? `${lower} - ${upper}` : '-'}
+                              </td>
+                              <td className="py-2 px-3 text-right font-semibold text-emerald-700 font-mono">
+                                ฿{valThb.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-right font-semibold text-blue-700 font-mono">
+                                ฿{holdThb.toLocaleString()}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-emerald-50/40 font-bold border-t-2 border-emerald-200 text-gray-900">
+                          <td className="py-2.5 px-3">รวมตลอดช่วงพยากรณ์</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-emerald-900">
+                            {(forecastData.financial_impact?.total_predicted_boxes || 
+                              forecastData.forecast.reduce((a: number, c: any) => a + (Number(c.predicted_value) || 0), 0)
+                            ).toLocaleString()} กล่อง
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-[11px] font-mono text-gray-500">
+                            {forecastData.financial_impact?.lower_value_thb && forecastData.financial_impact?.upper_value_thb 
+                              ? `฿${forecastData.financial_impact.lower_value_thb.toLocaleString()} - ฿${forecastData.financial_impact.upper_value_thb.toLocaleString()}`
+                              : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-emerald-800 text-sm">
+                            ฿{(forecastData.financial_impact?.total_value_thb || 
+                              forecastData.forecast.reduce((a: number, c: any) => a + (Number(c.predicted_value) || 0) * 2200, 0)
+                            ).toLocaleString()}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-blue-800 text-sm">
+                            ฿{(forecastData.financial_impact?.estimated_holding_cost_monthly_thb || 
+                              forecastData.forecast.reduce((a: number, c: any) => a + (Number(c.predicted_value) || 0) * 45, 0)
+                            ).toLocaleString()}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-gray-500 px-1 pt-1">
+                    <span>* สูตรประเมิน: 220 บาท/กก. × 10 กก./กล่อง = <strong>2,200 บาท/กล่อง</strong></span>
+                    <span>* อัตราพลังงานห้องเย็น: <strong>45 บาท/กล่อง/เดือน</strong></span>
                   </div>
                 </div>
               )}
@@ -880,7 +1030,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateTraining }) => {
                   default_product: settings.default_product
                 });
                 setShowSettings(false);
-                loadDashboardData();
+                loadDashboardData(productName);
               } catch (err: any) {
                 alert("Failed to save settings: " + err.message);
               } finally {

@@ -171,3 +171,60 @@ class ArimaForecast(Base):
     model_order: Mapped[str] = mapped_column(String(50), default="ARIMA(1,1,1)")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+
+# =====================================================================
+# Commercial Cold Chain & SARIMAX Schema Extensions
+# =====================================================================
+
+class ExogenousDaily(Base):
+    """ข้อมูลตัวแปรภายนอก (Exogenous Variables X) รายวันสำหรับ SARIMAX"""
+    __tablename__ = "exogenous_daily"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[date] = mapped_column(Date, unique=True, index=True)
+
+    # ปัจจัยสภาพอากาศและสมุทรศาสตร์ (กระทบฝั่ง Supply & Landing Volume)
+    wind_speed_max_kmh: Mapped[Optional[float]] = mapped_column(Float)
+    precipitation_mm: Mapped[Optional[float]] = mapped_column(Float)
+    sea_surface_temp_c: Mapped[Optional[float]] = mapped_column(Float)
+    wave_height_m: Mapped[Optional[float]] = mapped_column(Float)
+    is_storm: Mapped[int] = mapped_column(Integer, default=0)
+
+    # ดัชนีเศรษฐกิจ อัตราแลกเปลี่ยน และต้นทุนพลังงาน (กระทบฝั่ง Demand & Logistics)
+    usd_thb: Mapped[Optional[float]] = mapped_column(Float)
+    jpy_thb: Mapped[Optional[float]] = mapped_column(Float)
+    eur_thb: Mapped[Optional[float]] = mapped_column(Float)
+    brent_crude_usd: Mapped[Optional[float]] = mapped_column(Float)
+
+    # ดัชนีหุ้น Proxy อุตสาหกรรมอาหารทะเล
+    tu_bk_close: Mapped[Optional[float]] = mapped_column(Float)
+    asian_bk_close: Mapped[Optional[float]] = mapped_column(Float)
+
+    # ปฏิทินข้อบังคับและเทศกาล (Calendar & Regulations)
+    is_fishing_ban: Mapped[int] = mapped_column(Integer, default=0)
+    is_chinese_new_year: Mapped[int] = mapped_column(Integer, default=0)
+    is_songkran: Mapped[int] = mapped_column(Integer, default=0)
+    is_vegetarian_festival: Mapped[int] = mapped_column(Integer, default=0)
+    is_christmas_newyear: Mapped[int] = mapped_column(Integer, default=0)
+    lunar_phase: Mapped[Optional[float]] = mapped_column(Float)
+
+    source: Mapped[Optional[str]] = mapped_column(String(100), default="open-meteo+yfinance")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SarimaxForecast(Base):
+    """ผลการทำนายด้วย SARIMAX แยกโมเดล Inbound / Outbound พร้อมผลกระทบตัวแปรภายนอก"""
+    __tablename__ = "sarimax_forecasts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    time: Mapped[date] = mapped_column(Date, index=True)
+    product: Mapped[str] = mapped_column(String(100), default="Frozen Shrimp", index=True)
+    forecast_type: Mapped[str] = mapped_column(String(50), default="inbound", index=True)  # 'inbound', 'outbound', 'net_inventory'
+    predicted_value: Mapped[float] = mapped_column(Float)
+    lower_bound: Mapped[Optional[float]] = mapped_column(Float)
+    upper_bound: Mapped[Optional[float]] = mapped_column(Float)
+    model_order: Mapped[str] = mapped_column(String(100), default="SARIMAX(1,1,1)(1,0,1,12)")
+    feature_importance: Mapped[Optional[str]] = mapped_column(Text)  # JSON coefficients
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+

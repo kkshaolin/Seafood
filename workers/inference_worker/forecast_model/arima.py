@@ -8,9 +8,10 @@ from typing import Optional, List, Tuple
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX, SARIMAXResults
 from statsmodels.tsa.stattools import adfuller, acf, pacf
 
-logger = logging.getLogger("forecast_model.arima")
+logger = logging.getLogger("forecast_model.sarimax")
 
 
 def determine_differencing_order(series: pd.Series, max_d: int = 2) -> int:
@@ -132,35 +133,172 @@ def select_optimal_arima_order(
     return best_order
 
 
-def train_arima(train_df: pd.DataFrame, target_col: str, exog_cols: list, p: int, d: int, q: int):
+def select_optimal_sarimax_order(
+    train_df: pd.DataFrame,
+    target_col: str,
+    exog_cols: Optional[List[str]] = None,
+    seasonal_period: int = 12,
+    max_p: int = 2,
+    max_q: int = 2,
+    max_d: int = 2,
+    max_P: int = 1,
+    max_Q: int = 1,
+    max_D: int = 1,
+) -> Tuple[Tuple[int, int, int], Tuple[int, int, int, int]]:
     """
-    ฝึกโมเดล ARIMA ตามลำดับ (p, d, q) จากคอลัมน์เป้าหมาย
-
-    หากระบุ exogenous columns จะส่งตัวแปรเหล่านั้นเป็น exog; หากไม่ระบุ
-    จะฝึก ARIMA จาก target เพียงชุดเดียว
+    ค้นหาพารามิเตอร์ SARIMAX (p,d,q)(P,D,Q,s) ที่เหมาะสมที่สุดโดยใช้ AIC
     """
-    y = train_df[target_col]
+    y = train_df[target_col].dropna().astype(float)
     exog = train_df[exog_cols] if exog_cols else None
-    
+    d = determine_differencing_order(y, max_d=max_d)
+    sig_p, sig_q = analyze_acf_pacf(y, d=d, max_p=max_p, max_q=max_q)
+
+    p_candidates = sorted(set([0, 1, sig_p]))
+    q_candidates = sorted(set([0, 1, sig_q]))
+    s = seasonal_period if len(y) >= (seasonal_period * 2) else 0
+
+    best_aic = float("inf")
+    best_order = (sig_p, d, sig_q)
+    best_seasonal = (0, 0, 0, s)
+
+    seasonal_candidates = [(0, 0, 0, s)]
+    if s > 0:
+        seasonal_candidates.extend([
+            (1, 0, 0, s),
+            (0, 1, 0, s),
+            (1, 1, 0, s),
+            (0, 1, 1, s),
+            (1, 0, 1, s),
+        ])
+
+    for p in p_candidates:
+        for q in q_candidates:
+            if p == 0 and q == 0 and d == 0:
+                continue
+            for P, D, Q, s_period in seasonal_candidates:
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        mod = SARIMAX(
+                            y,
+                            exog=exog,
+                            order=(p, d, q),
+                            seasonal_order=(P, D, Q, s_period),
+                            enforce_stationarity=False,
+                            enforce_invertibility=False,
+                        )
+                        res = mod.fit(disp=False, maxiter=50)
+                        if res.aic < best_aic:
+                            best_aic = res.aic
+                            best_order = (p, d, q)
+                            best_seasonal = (P, D, Q, s_period)
+                except Exception:
+                    continue
+
+    logger.info("Optimal SARIMAX order: %s x %s with AIC=%.2f", best_order, best_seasonal, best_aic)
+    return best_order, best_seasonal
+
+
+def train_sarimax(
+    train_df: pd.DataFrame,
+    target_col: str,
+    exog_cols: Optional[List[str]] = None,
+    p: int = 1,
+    d: int = 1,
+    q: int = 1,
+    P: int = 0,
+    D: int = 0,
+    Q: int = 0,
+    s: int = 0,
+):
+    """
+    ฝึกโมเดล SARIMAX ตามลำดับ (p, d, q)(P, D, Q, s) พร้อมตัวแปรภายนอก exog_cols
+    """
+    y = train_df[target_col].astype(float)
+    exog = train_df[exog_cols].astype(float) if exog_cols else None
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model = ARIMA(y, exog=exog, order=(p, d, q))
-        fitted_model = model.fit()
-        
+        model = SARIMAX(
+            y,
+            exog=exog,
+            order=(p, d, q),
+            seasonal_order=(P, D, Q, s),
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
+        fitted_model = model.fit(disp=False, maxiter=100)
+
     return fitted_model
 
-def forecast_arima(fitted_model, steps: int, future_exog: pd.DataFrame = None):
-    """
-    พยากรณ์จำนวน steps จากโมเดลที่ฝึกแล้ว และคืนค่ากลางกับช่วงความเชื่อมั่น 95%
 
-    เมื่อโมเดลใช้ตัวแปรภายนอก ให้ส่งค่าของช่วงอนาคตผ่าน future_exog
+def forecast_sarimax(fitted_model, steps: int, future_exog: Optional[pd.DataFrame] = None):
+    """
+    พยากรณ์จำนวน steps จากโมเดล SARIMAX และคืนค่ากลางกับช่วงความเชื่อมั่น 95%
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         forecast_result = fitted_model.get_forecast(steps=steps, exog=future_exog)
-        
+
     forecast_values = forecast_result.predicted_mean
-    conf_int = forecast_result.conf_int(alpha=0.05) # 95% CI
-    
+    conf_int = forecast_result.conf_int(alpha=0.05)
     return forecast_values, conf_int
+
+
+def extract_sarimax_feature_importance(fitted_model, exog_cols: Optional[List[str]] = None) -> List[dict]:
+    """ดึงค่าสัมประสิทธิ์ (Coefficients), p-value และความสำคัญของตัวแปรภายนอก"""
+    if not exog_cols:
+        return []
+
+    importance_list = []
+    params = getattr(fitted_model, "params", {})
+    pvalues = getattr(fitted_model, "pvalues", {})
+    bse = getattr(fitted_model, "bse", {})
+
+    for col in exog_cols:
+        if col in params:
+            coef = float(params[col])
+            pval = float(pvalues[col]) if col in pvalues else None
+            stderr = float(bse[col]) if col in bse else None
+            # Absolute coefficient indicates relative impact scale
+            importance_list.append({
+                "feature": col,
+                "coefficient": round(coef, 4),
+                "p_value": round(pval, 4) if pval is not None else None,
+                "std_err": round(stderr, 4) if stderr is not None else None,
+                "is_significant": bool(pval is not None and pval < 0.05),
+            })
+
+    importance_list.sort(key=lambda x: abs(x["coefficient"]), reverse=True)
+    return importance_list
+
+
+def train_arima(train_df: pd.DataFrame, target_col: str, exog_cols: list, p: int, d: int, q: int):
+    """
+    ฝึกโมเดล ARIMA ตามลำดับ (p, d, q) จากคอลัมน์เป้าหมาย (Backward Compatible)
+    """
+    y = train_df[target_col]
+    exog = train_df[exog_cols] if exog_cols else None
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = ARIMA(y, exog=exog, order=(p, d, q))
+        fitted_model = model.fit()
+
+    return fitted_model
+
+
+def forecast_arima(fitted_model, steps: int, future_exog: pd.DataFrame = None):
+    """
+    พยากรณ์จำนวน steps จากโมเดลที่ฝึกแล้ว และคืนค่ากลางกับช่วงความเชื่อมั่น 95% (Backward Compatible)
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        forecast_result = fitted_model.get_forecast(steps=steps, exog=future_exog)
+
+    forecast_values = forecast_result.predicted_mean
+    conf_int = forecast_result.conf_int(alpha=0.05)  # 95% CI
+
+    return forecast_values, conf_int
+
 

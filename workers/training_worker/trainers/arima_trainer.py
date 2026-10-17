@@ -215,11 +215,16 @@ async def train_arima_model(
             sys.path.insert(0, p_)
 
     from forecast_model.preprocessing import prepare_time_series, chronological_split, PreprocessingError
-    from forecast_model.arima import train_arima, forecast_arima, select_optimal_arima_order
+    from forecast_model.arima import (
+        train_arima, forecast_arima, select_optimal_arima_order,
+        train_sarimax, forecast_sarimax, select_optimal_sarimax_order,
+        extract_sarimax_feature_importance,
+    )
     from forecast_model.metrics import (
         calculate_mae, calculate_rmse, calculate_mape,
         evaluate_forecast_against_baselines
     )
+    from data_worker.data_service import get_exogenous_matrix
 
     database_url = os.getenv("DATABASE_URL", "postgresql://admin:secretpassword@postgres:5432/my_database")
     session_factory, engine = _make_session_factory(database_url)

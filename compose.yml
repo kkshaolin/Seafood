@@ -360,6 +360,44 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+
+  # รับงานดึงข้อมูลสภาพอากาศและเศรษฐกิจภายนอก (Exogenous Data Pipeline)
+  data-worker:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: i_loveseafood-backend:latest
+    command: ["python", "-m", "arq", "data_worker.worker.WorkerSettings"]
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=${DATABASE_URL:-postgresql://admin:${POSTGRES_PASSWORD:-secretpassword}@postgres:5432/my_database}
+    volumes:
+      - ./workers:/app
+      - ./backend/src:/backend/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py", "data_worker.worker.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - ai-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
   # MLflow เก็บ metadata ของการทดลองใน PostgreSQL และ artifacts ใน MinIO
   mlflow:
     build:

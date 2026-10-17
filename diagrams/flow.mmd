@@ -1,0 +1,114 @@
+
+ flowchart TB
+
+        subgraph ClientLayer ["1. Client & Presentation Layer"]
+
+            UI["Dashboard"]
+
+        end
+
+        subgraph APILayer ["2. API Gateway & Application Layer"]
+
+            FastAPI["FastAPI Backend Server"]
+
+        end
+
+        subgraph BrokerLayer ["3. Message Broker & Distributed Queues"]
+
+            Redis[("Redis")]
+
+        end
+
+        subgraph WorkersLayer ["4. Background Workers (ARQ)"]
+            SW["Sampling Worker"]
+            IW["Inference Worker"]
+            TW["Training Worker"]
+            DW["Data Worker"]
+
+        end
+
+        subgraph StorageLayer ["5. Data Persistence & Object Storage"]
+
+            PG[("PostgreSQL 15 DatabasePort: 5433• box_logs• daily/monthly_inventories• sarimax_forecasts• exogenous_daily")]
+
+            MinIO[("MinIO S3 Object StoragePorts: 9000 / 9001• sampling-camera• result-yolo• models• datasets• mlflow-artifacts")]
+
+        end
+
+        subgraph MLOpsLayer ["6. MLOps & Experiment Tracking"]
+
+            MLflow["MLflow Tracking ServerPort: 5000"]
+
+            TB["TensorBoardPort: 6006"]
+
+            LS["Label StudioPort: 8080"]
+
+        end
+
+        subgraph ObsLayer ["7. Observability & Telemetry"]
+
+            OTel["OTel CollectorPorts: 4317 / 4318"]
+
+            Prom["PrometheusPort: 9090"]
+
+            Loki["Loki & PromtailPort: 3100"]
+
+            Tempo["TempoPort: 3200"]
+
+            Grafana["Grafana DashboardsPort: 3000"]
+
+        end
+
+        %% Flow connections
+
+        UI -->|HTTP / REST API| FastAPI
+
+        FastAPI -->|Enqueue Jobs| Redis
+
+        FastAPI -->|Direct Query| PG
+
+        FastAPI -->|Traces & Metrics| OTel
+
+        Redis -->|Poll forecasting_queue| IW
+
+        Redis -->|Poll sampling_queue| SW
+
+        Redis -->|Poll training_queue| TW
+
+        Redis -->|Poll data_worker| DW
+
+        SW -->|Mock Video Stream| SW
+
+        SW -->|Save Raw Frames| MinIO
+
+        IW -->|Fetch Raw Frames| MinIO
+
+        IW -->|Save Annotated Frames| MinIO
+
+        IW -->|Record Detections & Stocks| PG
+
+        TW -->|Pull Datasets & Model Base| MinIO
+
+        TW -->|Query Time-series History| PG
+
+        TW -->|Push Metrics & Runs| MLflow
+
+        TW -->|Write Event Logs| TB
+
+        TW -->|Save Trained Model .pt / .pkl| MinIO
+
+        DW -->|Fetch External APIs| DW
+
+        DW -->|Upsert Exogenous Features| PG
+
+        OTel --> Prom
+
+        OTel --> Tempo
+
+        Loki --> Grafana
+
+        Prom --> Grafana
+
+        Tempo --> Grafana
+
+        PG -.-> Grafana

@@ -32,6 +32,9 @@ dependencies = [
     "statsmodels>=0.15.0",
     "huggingface-hub>=0.20.0",
     "ultralytics>=8.0.0",
+    "httpx>=0.27.0",
+    "yfinance>=0.2.36",
+    "scipy>=1.11.0",
 ]
 
 [dependency-groups]
